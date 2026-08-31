@@ -10,8 +10,8 @@ export interface Stage {
   stage_type: StageType
   status: StageStatus
   version: number
-  output_json: unknown | null
-  user_edited_json: unknown | null
+  output_json: Record<string, unknown> | null
+  user_edited_json: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
@@ -35,12 +35,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(`${res.status} ${res.statusText}: ${body}`)
+    // FastAPI puts the human-readable reason in `detail`; fall back to the raw body.
+    let message = body
+    try {
+      const parsed = JSON.parse(body)
+      if (typeof parsed.detail === 'string') message = parsed.detail
+    } catch {
+      /* body was not JSON — use it as-is */
+    }
+    throw new Error(message)
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
 
 export const api = {
+  runStage: (projectId: string, stage: StageType) =>
+    request<Stage>(`/projects/${projectId}/stages/${stage}/run`, { method: 'POST' }),
+  saveStageEdit: (projectId: string, stage: StageType, output_json: unknown) =>
+    request<Stage>(`/projects/${projectId}/stages/${stage}`, {
+      method: 'PUT',
+      body: JSON.stringify({ output_json }),
+    }),
+  approveStage: (projectId: string, stage: StageType) =>
+    request<Stage>(`/projects/${projectId}/stages/${stage}/approve`, { method: 'POST' }),
+  unapproveStage: (projectId: string, stage: StageType) =>
+    request<Stage>(`/projects/${projectId}/stages/${stage}/unapprove`, { method: 'POST' }),
   listProjects: () => request<Project[]>('/projects'),
   getProject: (id: string) => request<ProjectDetail>(`/projects/${id}`),
   createProject: (name: string, raw_description: string) =>

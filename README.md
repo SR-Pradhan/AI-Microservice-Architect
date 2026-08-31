@@ -5,8 +5,9 @@ microservice architecture through a **staged, human-checkpointed pipeline**: ser
 HLD → LLD → DB schemas → Kafka event contracts → Docker/K8s manifests. Each stage produces an
 artifact you review and edit before it feeds the next one.
 
-**Current version: v0.1.0** — orchestrator skeleton, Postgres schema, project CRUD, frontend shell.
-No AI calls yet.
+**Current version: v0.2.0** — Stage 1 (service boundaries) works end to end: prompt → Claude
+structured output → schema validation with retry-on-error → review → edit → approve. Stages 2-6
+return 501 until later versions.
 
 ## Layout
 
@@ -27,6 +28,7 @@ cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+# add your ANTHROPIC_API_KEY to .env
 alembic upgrade head
 uvicorn app.main:app --reload          # http://localhost:8000/docs
 
@@ -34,6 +36,12 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 cd frontend
 npm install
 npm run dev                            # http://localhost:5173
+```
+
+## Tests
+
+```bash
+cd backend && .venv/bin/pytest -q     # 7 tests, no API key needed
 ```
 
 ## Docs

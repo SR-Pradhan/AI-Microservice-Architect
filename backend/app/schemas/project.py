@@ -19,6 +19,12 @@ class ProjectUpdate(BaseModel):
     raw_description: str | None = Field(default=None, min_length=10)
 
 
+class StageUpdate(BaseModel):
+    """The user's edited version of a stage output. Validated against that stage's contract."""
+
+    output_json: dict[str, Any]
+
+
 class StageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

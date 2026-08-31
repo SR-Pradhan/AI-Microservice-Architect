@@ -1,16 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { api, type ProjectDetail, type StageType } from '../lib/api'
-import StageBadge from '../components/StageBadge'
-
-const STAGE_LABELS: Record<StageType, string> = {
-  boundaries: '1. Service Boundaries',
-  hld: '2. High-Level Design',
-  lld: '3. Low-Level Design',
-  db_schema: '4. DB Schemas',
-  kafka_events: '5. Kafka Event Contracts',
-  infra: '6. Docker / Kubernetes',
-}
+import { api, type ProjectDetail, type Stage, type StageType } from '../lib/api'
+import StagePanel from '../components/StagePanel'
 
 const STAGE_ORDER: StageType[] = ['boundaries', 'hld', 'lld', 'db_schema', 'kafka_events', 'infra']
 
@@ -23,8 +14,14 @@ export default function ProjectDetailPage() {
     if (id) api.getProject(id).then(setProject).catch((e) => setError(String(e)))
   }, [id])
 
+  function handleStageChanged(updated: Stage) {
+    setProject((p) =>
+      p ? { ...p, stages: p.stages.map((s) => (s.id === updated.id ? updated : s)) } : p,
+    )
+  }
+
   if (error) return <p className="p-8 text-sm text-red-600">{error}</p>
-  if (!project) return <p className="p-8 text-sm text-slate-500">Loading...</p>
+  if (!project || !id) return <p className="p-8 text-sm text-slate-500">Loading...</p>
 
   const byType = new Map(project.stages.map((s) => [s.stage_type, s]))
 
@@ -38,18 +35,25 @@ export default function ProjectDetailPage() {
 
       <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Pipeline</h2>
       <ul className="mt-3 divide-y divide-slate-200 rounded-lg border border-slate-200">
-        {STAGE_ORDER.map((type) => {
+        {STAGE_ORDER.map((type, index) => {
           const stage = byType.get(type)
+          if (!stage) return null
+          // Stage 1 is always unlocked; every later stage needs its predecessor approved.
+          const previous = index === 0 ? null : byType.get(STAGE_ORDER[index - 1])
+          const unlocked = index === 0 || previous?.status === 'approved'
           return (
-            <li key={type} className="flex items-center justify-between p-4">
-              <span className="text-sm font-medium text-slate-800">{STAGE_LABELS[type]}</span>
-              {stage ? <StageBadge status={stage.status} /> : null}
-            </li>
+            <StagePanel
+              key={stage.id}
+              projectId={id}
+              stage={stage}
+              unlocked={unlocked}
+              onChanged={handleStageChanged}
+            />
           )
         })}
       </ul>
       <p className="mt-4 text-xs text-slate-400">
-        Generation lands in v0.2.0 — right now every stage starts out pending.
+        Stage 1 is live. Stages 2-6 return "not implemented yet" until later versions.
       </p>
     </div>
   )

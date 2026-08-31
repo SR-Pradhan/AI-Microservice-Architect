@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://architect:architect@localhost:5434/architect"
     cors_origins: str = "http://localhost:5173"
 
+    # Claude. The key is read from the environment and must never be committed.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-opus-5"
+    anthropic_max_tokens: int = 16000
+    # How many times a stage may be re-asked after the output fails validation.
+    llm_max_retries: int = 2
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

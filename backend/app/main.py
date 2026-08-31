@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import health, projects
+from app.api.routes import health, projects, stages
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -12,7 +12,7 @@ app = FastAPI(
     title="AI Microservice Architect",
     description="Staged, human-checkpointed pipeline that turns a plain-English system "
     "description into a full microservice architecture.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -25,3 +25,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(projects.router)
+app.include_router(stages.router)
