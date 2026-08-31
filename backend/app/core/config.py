@@ -1,6 +1,7 @@
 """Application settings, loaded once from environment / .env file."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -12,10 +13,17 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://architect:architect@localhost:5434/architect"
     cors_origins: str = "http://localhost:5173"
 
+    # Which provider generates the stages: "anthropic" (Claude) or "gemini" (free tier).
+    llm_provider: Literal["anthropic", "gemini"] = "anthropic"
+
     # Claude. The key is read from the environment and must never be committed.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-5"
     anthropic_max_tokens: int = 16000
+
+    # Google Gemini — free key from https://aistudio.google.com/apikey, no card required.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
     # How many times a stage may be re-asked after the output fails validation.
     llm_max_retries: int = 2
 

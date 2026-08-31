@@ -9,3 +9,4 @@ python-dotenv==1.0.1
 anthropic==1.2.0
 pytest==8.3.4
 pytest-asyncio==0.25.0
+google-genai==2.20.0
