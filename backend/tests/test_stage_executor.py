@@ -107,7 +107,7 @@ async def test_retry_feeds_the_validation_error_back(db: AsyncSession, project: 
     assert len(llm.calls) == 2
     # The second attempt must actually contain the error text, not just be a blind re-ask.
     retry_prompt = llm.calls[1][-1]["content"]
-    assert "did not satisfy the required schema" in retry_prompt
+    assert "Your previous output was rejected" in retry_prompt
     assert "services" in retry_prompt
 
 
@@ -158,10 +158,63 @@ async def test_edit_is_validated_against_the_contract(db: AsyncSession, project:
         await stage_executor.save_stage_edit(db, project, StageType.BOUNDARIES, {"nonsense": 1})
 
 
+VALID_HLD = {
+    "services": [
+        {"name": "OrderService", "datastore": "PostgreSQL", "scaling_notes": "-"},
+        {"name": "PaymentService", "datastore": "PostgreSQL", "scaling_notes": "-"},
+    ],
+    "sync_calls": [],
+    "async_flows": [
+        {
+            "event": "order.created",
+            "producer": "OrderService",
+            "consumers": ["PaymentService"],
+            "purpose": "start payment",
+        }
+    ],
+    "external_dependencies": [],
+    "design_notes": "-",
+}
+
+
 @pytest.mark.asyncio
-async def test_unimplemented_stage_reports_clearly(db: AsyncSession, project: Project) -> None:
-    llm = FakeLLM([VALID_OUTPUT])
+async def test_hld_runs_once_boundaries_are_approved(db: AsyncSession, project: Project) -> None:
+    llm = FakeLLM([VALID_OUTPUT, VALID_HLD])
     await stage_executor.run_stage(db, project, StageType.BOUNDARIES, llm)
     await stage_executor.approve_stage(db, project, StageType.BOUNDARIES)
+
+    stage = await stage_executor.run_stage(db, project, StageType.HLD, llm)
+    assert stage.status is StageStatus.GENERATED
+    # Stage 2 must have been given Stage 1's approved output, not the raw description alone.
+    assert stage.input_snapshot["prior_outputs"]["boundaries"]["services"][0]["name"] == "OrderService"
+
+
+@pytest.mark.asyncio
+async def test_inconsistent_hld_is_retried_then_rejected(db: AsyncSession, project: Project) -> None:
+    """A schema-valid HLD that invents a service must be caught and fed back, not stored."""
+    ghost = {
+        **VALID_HLD,
+        "services": VALID_HLD["services"] + [
+            {"name": "GhostService", "datastore": "none", "scaling_notes": "-"}
+        ],
+    }
+    llm = FakeLLM([VALID_OUTPUT, ghost, VALID_HLD])
+    await stage_executor.run_stage(db, project, StageType.BOUNDARIES, llm)
+    await stage_executor.approve_stage(db, project, StageType.BOUNDARIES)
+
+    stage = await stage_executor.run_stage(db, project, StageType.HLD, llm)
+    assert stage.status is StageStatus.GENERATED
+    assert [s["name"] for s in stage.output_json["services"]] == ["OrderService", "PaymentService"]
+    # The repair prompt must name the actual offending service.
+    assert "GhostService" in llm.calls[-1][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_unimplemented_stage_reports_clearly(db: AsyncSession, project: Project) -> None:
+    llm = FakeLLM([VALID_OUTPUT, VALID_HLD])
+    await stage_executor.run_stage(db, project, StageType.BOUNDARIES, llm)
+    await stage_executor.approve_stage(db, project, StageType.BOUNDARIES)
+    await stage_executor.run_stage(db, project, StageType.HLD, llm)
+    await stage_executor.approve_stage(db, project, StageType.HLD)
     with pytest.raises(NotImplementedError, match="not implemented yet"):
-        await stage_executor.run_stage(db, project, StageType.HLD, llm)
+        await stage_executor.run_stage(db, project, StageType.LLD, llm)

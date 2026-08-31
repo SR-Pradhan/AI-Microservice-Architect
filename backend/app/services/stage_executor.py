@@ -16,6 +16,7 @@ from app.ai.contracts import contract_for
 from app.ai.llm import StructuredLLM
 from app.ai.prompts import build_stage_prompt
 from app.core.config import get_settings
+from app.services.consistency import check_consistency
 from app.models import STAGE_ORDER, Project, Stage, StageStatus, StageType
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,8 @@ async def run_stage(
             parsed = await llm.generate(
                 system=system, messages=messages, output_format=contract
             )
+            # Schema-valid is not enough: the output must also agree with earlier approved stages.
+            check_consistency(stage_type, parsed, prior_outputs)
             break
         except (ValidationError, ValueError) as exc:
             last_error = exc
@@ -103,9 +106,10 @@ async def run_stage(
                 {
                     "role": "user",
                     "content": (
-                        "Your previous output did not satisfy the required schema. "
-                        f"The validation error was:\n\n{exc}\n\n"
-                        "Return corrected output that satisfies the schema exactly."
+                        "Your previous output was rejected. The problem was:\n\n"
+                        f"{exc}\n\n"
+                        "Return corrected output that fixes this exactly. Do not change anything "
+                        "that was not part of the problem."
                     ),
                 },
             ]

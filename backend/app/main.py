@@ -12,7 +12,7 @@ app = FastAPI(
     title="AI Microservice Architect",
     description="Staged, human-checkpointed pipeline that turns a plain-English system "
     "description into a full microservice architecture.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 app.add_middleware(

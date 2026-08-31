@@ -5,6 +5,8 @@ JSON schema Claude is forced to produce, it validates what comes back, and it do
 stage. Adding a stage means adding a model here and registering it in STAGE_CONTRACTS.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import StageType
@@ -34,9 +36,56 @@ class BoundariesOutput(StageContract):
     )
 
 
-# Stages 2-6 land in later versions.
+class HLDService(StageContract):
+    name: str = Field(description="Must exactly match a service name from Stage 1")
+    datastore: str = Field(description="e.g. PostgreSQL, MongoDB, Redis, or 'none'")
+    scaling_notes: str = Field(description="What makes this service scale, or its main bottleneck")
+
+
+class SyncCall(StageContract):
+    """A request/response call. The caller blocks waiting for the callee."""
+
+    caller: str
+    callee: str
+    purpose: str = Field(description="Why this call is synchronous rather than an event")
+    protocol: Literal["REST", "gRPC", "GraphQL"] = "REST"
+
+
+class AsyncFlow(StageContract):
+    """A fire-and-forget event. The producer does not wait."""
+
+    event: str = Field(description="Event name in dot.case, e.g. order.created")
+    producer: str
+    consumers: list[str] = Field(min_length=1)
+    purpose: str
+
+
+class ExternalDependency(StageContract):
+    name: str = Field(description="Third-party system, e.g. Stripe, SendGrid, S3")
+    used_by: list[str] = Field(min_length=1)
+    purpose: str
+
+
+class HLDOutput(StageContract):
+    """Stage 2 output: the service map and how services talk to each other."""
+
+    services: list[HLDService] = Field(min_length=2)
+    sync_calls: list[SyncCall] = Field(
+        default_factory=list, description="Calls where the caller must wait for an answer"
+    )
+    async_flows: list[AsyncFlow] = Field(
+        default_factory=list, description="Events published to a broker; the producer does not wait"
+    )
+    external_dependencies: list[ExternalDependency] = Field(default_factory=list)
+    design_notes: str = Field(
+        description="Key decisions: what is sync vs async and why, and the main failure modes"
+    )
+
+
+# Stages 3-6 land in later versions.
 STAGE_CONTRACTS: dict[StageType, type[StageContract]] = {
     StageType.BOUNDARIES: BoundariesOutput,
+    StageType.HLD: HLDOutput,
 }
 
 

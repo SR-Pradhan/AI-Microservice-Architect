@@ -1,6 +1,12 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { api, type Stage, type StageType } from '../lib/api'
 import StageBadge from './StageBadge'
+// Mermaid is ~700kB. Loading it lazily keeps it out of the initial bundle for anyone who never
+// opens a diagram.
+const MermaidDiagram = lazy(() => import('./MermaidDiagram'))
+
+/** Stages whose output the backend can render as a diagram. */
+const DIAGRAM_STAGES: StageType[] = ['hld']
 
 const LABELS: Record<StageType, string> = {
   boundaries: '1. Service Boundaries',
@@ -24,16 +30,33 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [view, setView] = useState<'diagram' | 'json'>('json')
+  const [mermaid, setMermaid] = useState<string | null>(null)
 
   const current = stage.user_edited_json ?? stage.output_json
   const hasOutput = current !== null
   const approved = stage.status === 'approved'
+  const hasDiagram = DIAGRAM_STAGES.includes(stage.stage_type)
 
   // Reset the editor whenever the server hands us new content, so the textarea never shows a
   // stale draft from a previous generation.
   useEffect(() => {
     setDraft(current ? JSON.stringify(current, null, 2) : '')
-  }, [current])
+    if (hasDiagram && current) setView('diagram')
+  }, [current, hasDiagram])
+
+  // The diagram is built server-side, so it always reflects what is actually stored.
+  useEffect(() => {
+    if (!open || !hasDiagram || !hasOutput) return
+    let cancelled = false
+    api
+      .getStageDiagram(projectId, stage.stage_type)
+      .then((d) => !cancelled && setMermaid(d.mermaid))
+      .catch(() => !cancelled && setMermaid(null))
+    return () => {
+      cancelled = true
+    }
+  }, [open, hasDiagram, hasOutput, projectId, stage.stage_type, stage.version, current])
 
   async function act(label: string, fn: () => Promise<Stage>) {
     setBusy(label)
@@ -110,14 +133,40 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
 
       {open && hasOutput && (
         <div className="mt-3">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            readOnly={approved}
-            spellCheck={false}
-            className="h-80 w-full rounded border border-slate-300 bg-slate-50 p-3 font-mono text-xs text-slate-800 read-only:opacity-70"
-          />
-          {!approved && (
+          {hasDiagram && (
+            <div className="mb-2 flex gap-1">
+              {(['diagram', 'json'] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`rounded px-2.5 py-1 text-xs font-medium ${
+                    view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {v === 'diagram' ? 'Diagram' : 'JSON'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {hasDiagram && view === 'diagram' ? (
+            mermaid ? (
+              <Suspense fallback={<p className="text-xs text-slate-400">Loading diagram...</p>}>
+                <MermaidDiagram code={mermaid} />
+              </Suspense>
+            ) : (
+              <p className="text-xs text-slate-400">Loading diagram...</p>
+            )
+          ) : (
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              readOnly={approved}
+              spellCheck={false}
+              className="h-80 w-full rounded border border-slate-300 bg-slate-50 p-3 font-mono text-xs text-slate-800 read-only:opacity-70"
+            />
+          )}
+          {!approved && view === 'json' && (
             <div className="mt-2 flex items-center gap-2">
               <button
                 onClick={handleSave}

@@ -5,8 +5,9 @@ microservice architecture through a **staged, human-checkpointed pipeline**: ser
 HLD → LLD → DB schemas → Kafka event contracts → Docker/K8s manifests. Each stage produces an
 artifact you review and edit before it feeds the next one.
 
-**Current version: v0.2.0** — Stage 1 (service boundaries) works end to end: prompt → Claude
-structured output → schema validation with retry-on-error → review → edit → approve. Stages 2-6
+**Current version: v0.3.0** — Stages 1 (service boundaries) and 2 (high-level design) work end to
+end: prompt → Claude structured output → schema validation → cross-stage consistency check → retry
+on failure → review → edit → approve. Stage 2 also renders as a Mermaid service map. Stages 3-6
 return 501 until later versions.
 
 ## Layout
@@ -41,7 +42,7 @@ npm run dev                            # http://localhost:5173
 ## Tests
 
 ```bash
-cd backend && .venv/bin/pytest -q     # 7 tests, no API key needed
+cd backend && .venv/bin/pytest -q     # 20 tests, no API key needed
 ```
 
 ## Docs

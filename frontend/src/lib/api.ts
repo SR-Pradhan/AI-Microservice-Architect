@@ -56,6 +56,8 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ output_json }),
     }),
+  getStageDiagram: (projectId: string, stage: StageType) =>
+    request<{ mermaid: string }>(`/projects/${projectId}/stages/${stage}/diagram`),
   approveStage: (projectId: string, stage: StageType) =>
     request<Stage>(`/projects/${projectId}/stages/${stage}/approve`, { method: 'POST' }),
   unapproveStage: (projectId: string, stage: StageType) =>
