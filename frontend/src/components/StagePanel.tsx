@@ -4,9 +4,10 @@ import StageBadge from './StageBadge'
 // Mermaid is ~700kB. Loading it lazily keeps it out of the initial bundle for anyone who never
 // opens a diagram.
 const MermaidDiagram = lazy(() => import('./MermaidDiagram'))
+const LLDView = lazy(() => import('./LLDView'))
 
-/** Stages whose output the backend can render as a diagram. */
-const DIAGRAM_STAGES: StageType[] = ['hld']
+/** Stages that render as something friendlier than raw JSON, and what that tab is called. */
+const VISUAL_TABS: Partial<Record<StageType, string>> = { hld: 'Diagram', lld: 'Contracts' }
 
 const LABELS: Record<StageType, string> = {
   boundaries: '1. Service Boundaries',
@@ -30,24 +31,26 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
-  const [view, setView] = useState<'diagram' | 'json'>('json')
+  const [view, setView] = useState<'visual' | 'json'>('json')
   const [mermaid, setMermaid] = useState<string | null>(null)
 
   const current = stage.user_edited_json ?? stage.output_json
   const hasOutput = current !== null
   const approved = stage.status === 'approved'
-  const hasDiagram = DIAGRAM_STAGES.includes(stage.stage_type)
+  const visualLabel = VISUAL_TABS[stage.stage_type]
+  const hasVisual = visualLabel !== undefined
+  const needsDiagram = stage.stage_type === 'hld'
 
   // Reset the editor whenever the server hands us new content, so the textarea never shows a
   // stale draft from a previous generation.
   useEffect(() => {
     setDraft(current ? JSON.stringify(current, null, 2) : '')
-    if (hasDiagram && current) setView('diagram')
-  }, [current, hasDiagram])
+    if (hasVisual && current) setView('visual')
+  }, [current, hasVisual])
 
   // The diagram is built server-side, so it always reflects what is actually stored.
   useEffect(() => {
-    if (!open || !hasDiagram || !hasOutput) return
+    if (!open || !needsDiagram || !hasOutput) return
     let cancelled = false
     api
       .getStageDiagram(projectId, stage.stage_type)
@@ -56,7 +59,7 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
     return () => {
       cancelled = true
     }
-  }, [open, hasDiagram, hasOutput, projectId, stage.stage_type, stage.version, current])
+  }, [open, needsDiagram, hasOutput, projectId, stage.stage_type, stage.version, current])
 
   async function act(label: string, fn: () => Promise<Stage>) {
     setBusy(label)
@@ -133,9 +136,9 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
 
       {open && hasOutput && (
         <div className="mt-3">
-          {hasDiagram && (
+          {hasVisual && (
             <div className="mb-2 flex gap-1">
-              {(['diagram', 'json'] as const).map((v) => (
+              {(['visual', 'json'] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -143,20 +146,24 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
                     view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
                   }`}
                 >
-                  {v === 'diagram' ? 'Diagram' : 'JSON'}
+                  {v === 'visual' ? visualLabel : 'JSON'}
                 </button>
               ))}
             </div>
           )}
 
-          {hasDiagram && view === 'diagram' ? (
-            mermaid ? (
-              <Suspense fallback={<p className="text-xs text-slate-400">Loading diagram...</p>}>
-                <MermaidDiagram code={mermaid} />
-              </Suspense>
-            ) : (
-              <p className="text-xs text-slate-400">Loading diagram...</p>
-            )
+          {hasVisual && view === 'visual' ? (
+            <Suspense fallback={<p className="text-xs text-slate-400">Loading...</p>}>
+              {needsDiagram ? (
+                mermaid ? (
+                  <MermaidDiagram code={mermaid} />
+                ) : (
+                  <p className="text-xs text-slate-400">Loading diagram...</p>
+                )
+              ) : (
+                <LLDView data={current} />
+              )}
+            </Suspense>
           ) : (
             <textarea
               value={draft}

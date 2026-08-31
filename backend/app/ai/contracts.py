@@ -82,10 +82,65 @@ class HLDOutput(StageContract):
     )
 
 
-# Stages 3-6 land in later versions.
+class DataField(StageContract):
+    """One field of an entity, request body or response body."""
+
+    name: str
+    type: Literal[
+        "string", "uuid", "integer", "decimal", "boolean", "timestamp", "array", "object"
+    ]
+    required: bool = True
+    description: str
+
+
+class Entity(StageContract):
+    name: str = Field(description="PascalCase entity name, e.g. Order")
+    description: str
+    fields: list[DataField] = Field(min_length=1)
+
+
+class ApiEndpoint(StageContract):
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+    path: str = Field(description="e.g. /orders/{orderId} — path params in braces")
+    summary: str
+    request_fields: list[DataField] = Field(
+        default_factory=list, description="Body fields. Empty for GET/DELETE."
+    )
+    response_fields: list[DataField] = Field(default_factory=list)
+    called_by: list[str] = Field(
+        default_factory=list,
+        description="Service names that call this endpoint, or 'public' for client-facing ones",
+    )
+
+
+class ServiceLLD(StageContract):
+    name: str = Field(description="Must exactly match a service name from Stage 2")
+    tech_stack: str = Field(
+        description="Runtime and framework, e.g. 'Java / Spring Boot' or 'Python / FastAPI'. "
+        "Stage 6 infers the Dockerfile from this."
+    )
+    entities: list[Entity] = Field(min_length=1)
+    endpoints: list[ApiEndpoint] = Field(min_length=1)
+    published_events: list[str] = Field(
+        default_factory=list, description="Event names this service publishes, from the HLD"
+    )
+    consumed_events: list[str] = Field(default_factory=list)
+    internal_logic_notes: str = Field(
+        description="The non-obvious logic: transactions, idempotency, ordering, retries"
+    )
+
+
+class LLDOutput(StageContract):
+    """Stage 3 output: the internals of every service."""
+
+    services: list[ServiceLLD] = Field(min_length=2)
+
+
+# Stages 4-6 land in later versions.
 STAGE_CONTRACTS: dict[StageType, type[StageContract]] = {
     StageType.BOUNDARIES: BoundariesOutput,
     StageType.HLD: HLDOutput,
+    StageType.LLD: LLDOutput,
 }
 
 

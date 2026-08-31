@@ -209,12 +209,60 @@ async def test_inconsistent_hld_is_retried_then_rejected(db: AsyncSession, proje
     assert "GhostService" in llm.calls[-1][-1]["content"]
 
 
+def _service_lld(name: str, published: list[str], consumed: list[str], called_by: list[str]) -> dict:
+    return {
+        "name": name,
+        "tech_stack": "Python / FastAPI",
+        "entities": [
+            {
+                "name": name.replace("Service", ""),
+                "description": "-",
+                "fields": [{"name": "id", "type": "uuid", "required": True, "description": "-"}],
+            }
+        ],
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": f"/{name.lower()}",
+                "summary": "-",
+                "request_fields": [],
+                "response_fields": [],
+                "called_by": called_by,
+            }
+        ],
+        "published_events": published,
+        "consumed_events": consumed,
+        "internal_logic_notes": "-",
+    }
+
+
+VALID_LLD = {
+    "services": [
+        _service_lld("OrderService", ["order.created"], [], ["public"]),
+        _service_lld("PaymentService", [], ["order.created"], ["public"]),
+    ]
+}
+
+
+@pytest.mark.asyncio
+async def test_full_three_stage_run(db: AsyncSession, project: Project) -> None:
+    """Boundaries -> HLD -> LLD, each gated on the previous being approved."""
+    llm = FakeLLM([VALID_OUTPUT, VALID_HLD, VALID_LLD])
+    for stage_type in (StageType.BOUNDARIES, StageType.HLD, StageType.LLD):
+        stage = await stage_executor.run_stage(db, project, stage_type, llm)
+        assert stage.status is StageStatus.GENERATED
+        await stage_executor.approve_stage(db, project, stage_type)
+
+    # Stage 3 must have received BOTH prior stages, not just the one immediately before it.
+    lld = await stage_executor.get_stage(db, project.id, StageType.LLD)
+    assert set(lld.input_snapshot["prior_outputs"]) == {"boundaries", "hld"}
+
+
 @pytest.mark.asyncio
 async def test_unimplemented_stage_reports_clearly(db: AsyncSession, project: Project) -> None:
-    llm = FakeLLM([VALID_OUTPUT, VALID_HLD])
-    await stage_executor.run_stage(db, project, StageType.BOUNDARIES, llm)
-    await stage_executor.approve_stage(db, project, StageType.BOUNDARIES)
-    await stage_executor.run_stage(db, project, StageType.HLD, llm)
-    await stage_executor.approve_stage(db, project, StageType.HLD)
+    llm = FakeLLM([VALID_OUTPUT, VALID_HLD, VALID_LLD])
+    for stage_type in (StageType.BOUNDARIES, StageType.HLD, StageType.LLD):
+        await stage_executor.run_stage(db, project, stage_type, llm)
+        await stage_executor.approve_stage(db, project, stage_type)
     with pytest.raises(NotImplementedError, match="not implemented yet"):
-        await stage_executor.run_stage(db, project, StageType.LLD, llm)
+        await stage_executor.run_stage(db, project, StageType.DB_SCHEMA, llm)

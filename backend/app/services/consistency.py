@@ -10,7 +10,7 @@ Stage Executor treats exactly like a schema failure: feed the problem back and a
 
 from typing import Any, Callable
 
-from app.ai.contracts import HLDOutput, StageContract
+from app.ai.contracts import HLDOutput, LLDOutput, StageContract
 from app.models.enums import StageType
 
 
@@ -64,9 +64,78 @@ def check_hld(hld: HLDOutput, prior_outputs: dict[str, Any]) -> list[str]:
     return problems
 
 
+def check_lld(lld: LLDOutput, prior_outputs: dict[str, Any]) -> list[str]:
+    """The LLD must actually implement the HLD.
+
+    Two failures matter most, and neither is visible to schema validation:
+      * a synchronous call in the HLD that no endpoint on the callee can receive;
+      * an event in the HLD that its producer never publishes or a consumer never consumes.
+    Either one means the design does not hold together.
+    """
+    hld = prior_outputs.get(StageType.HLD.value) or {}
+    hld_names = {s["name"] for s in hld.get("services", [])}
+    if not hld_names:
+        return []
+
+    problems: list[str] = []
+    lld_names = {s.name for s in lld.services}
+
+    for name in sorted(lld_names - hld_names):
+        problems.append(
+            f"LLD describes '{name}', which is not one of the HLD services "
+            f"({', '.join(sorted(hld_names))})"
+        )
+    for name in sorted(hld_names - lld_names):
+        problems.append(f"HLD service '{name}' has no low-level design")
+
+    by_name = {s.name: s for s in lld.services}
+
+    # Every sync call in the HLD needs a real endpoint on the callee that names the caller.
+    for call in hld.get("sync_calls", []):
+        caller, callee = call.get("caller", ""), call.get("callee", "")
+        service = by_name.get(callee)
+        if service is None:
+            continue  # already reported as a missing service
+        if not any(caller in endpoint.called_by for endpoint in service.endpoints):
+            problems.append(
+                f"HLD has {caller} calling {callee}, but no endpoint on {callee} lists "
+                f"'{caller}' in called_by"
+            )
+
+    # Every event in the HLD must be published and consumed by the services the HLD says.
+    for flow in hld.get("async_flows", []):
+        event = flow.get("event", "")
+        producer = by_name.get(flow.get("producer", ""))
+        if producer is not None and event not in producer.published_events:
+            problems.append(
+                f"HLD says {producer.name} publishes '{event}', but its published_events does not "
+                f"list it (has: {producer.published_events or 'nothing'})"
+            )
+        for consumer_name in flow.get("consumers", []):
+            consumer = by_name.get(consumer_name)
+            if consumer is not None and event not in consumer.consumed_events:
+                problems.append(
+                    f"HLD says {consumer_name} consumes '{event}', but its consumed_events does "
+                    f"not list it (has: {consumer.consumed_events or 'nothing'})"
+                )
+
+    # called_by must name a real service, or the literal 'public'.
+    for service in lld.services:
+        for endpoint in service.endpoints:
+            for caller in endpoint.called_by:
+                if caller != "public" and caller not in hld_names:
+                    problems.append(
+                        f"{service.name} {endpoint.method} {endpoint.path} is called_by "
+                        f"'{caller}', which is neither a known service nor 'public'"
+                    )
+
+    return problems
+
+
 # One optional checker per stage. Stages with no entry are schema-validated only.
 CROSS_STAGE_CHECKS: dict[StageType, Callable[[Any, dict[str, Any]], list[str]]] = {
     StageType.HLD: check_hld,
+    StageType.LLD: check_lld,
 }
 
 

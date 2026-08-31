@@ -47,9 +47,28 @@ Rules you must follow:
 - In design_notes, state the main failure modes: what breaks if each hot path goes down.
 """
 
+LLD_INSTRUCTIONS = """\
+Produce the low-level design for every service in the approved high-level design.
+
+Rules you must follow:
+- Cover EVERY service from the HLD, spelled exactly. Do not add or omit one.
+- Every synchronous call in the HLD must appear as a real endpoint on the callee, and that
+  endpoint's called_by must list the caller. A call in the HLD with no endpoint to receive it is a
+  broken design.
+- Every event in the HLD must appear in its producer's published_events and in each consumer's
+  consumed_events, spelled exactly as in the HLD.
+- Use 'public' in called_by for endpoints a client or gateway calls directly.
+- Entities are the data this service owns. Do not duplicate another service's entity; reference it
+  by id instead (e.g. Order has a userId field, not an embedded User).
+- Pick a concrete tech_stack per service and say why it fits that service's workload.
+- internal_logic_notes is where the real engineering goes: transaction boundaries, idempotency keys,
+  what happens on retry, ordering guarantees. Be specific, not generic.
+"""
+
 STAGE_INSTRUCTIONS = {
     StageType.BOUNDARIES: BOUNDARIES_INSTRUCTIONS,
     StageType.HLD: HLD_INSTRUCTIONS,
+    StageType.LLD: LLD_INSTRUCTIONS,
 }
 
 
