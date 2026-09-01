@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # Google Gemini — free key from https://aistudio.google.com/apikey, no card required.
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
     # How many times a stage may be re-asked after the output fails validation.
     llm_max_retries: int = 2
 

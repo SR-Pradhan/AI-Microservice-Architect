@@ -19,6 +19,7 @@ from google import genai
 from google.genai import types as genai_types
 from pydantic import BaseModel
 
+from app.ai.gemini_schema import to_gemini_schema
 from app.core.config import get_settings
 
 
@@ -76,9 +77,10 @@ class AnthropicStructuredLLM:
 class GeminiStructuredLLM:
     """Google Gemini, using response_schema for constrained JSON output.
 
-    Gemini's schema support is a subset of JSON Schema — constraints like minimum list length are
-    not enforced server-side. So the raw JSON is validated against our own Pydantic model here,
-    which both enforces everything and produces a ValidationError the retry loop can feed back.
+    Gemini's schema support is a subset of JSON Schema, so the Pydantic schema is translated before
+    it is sent (see gemini_schema.py) and the response is validated against the real Pydantic model
+    afterwards. That second step both enforces the dropped constraints and produces a
+    ValidationError the retry loop can feed back.
     """
 
     # Gemini uses "model" where Anthropic uses "assistant"; every other role name matches.
@@ -115,7 +117,7 @@ class GeminiStructuredLLM:
             config=genai_types.GenerateContentConfig(
                 system_instruction=system,
                 response_mime_type="application/json",
-                response_schema=output_format,
+                response_schema=to_gemini_schema(output_format.model_json_schema()),
             ),
         )
         text = response.text

@@ -99,7 +99,10 @@ async def test_gemini_maps_roles_and_passes_schema() -> None:
     # Anthropic's "assistant" must become Gemini's "model", or the conversation is rejected.
     assert [c.role for c in client.captured["contents"]] == ["user", "model", "user"]
     assert client.captured["config"].system_instruction == "be an architect"
-    assert client.captured["config"].response_schema is BoundariesOutput
+    # The schema is translated, not passed through — Gemini rejects Pydantic's raw output.
+    sent = client.captured["config"].response_schema
+    assert "services" in sent["properties"]
+    assert "additionalProperties" not in str(sent)  # Gemini rejects it
 
 
 @pytest.mark.asyncio
