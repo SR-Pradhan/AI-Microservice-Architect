@@ -1,8 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { api, type Stage, type StageType } from '../lib/api'
 import StageBadge from './StageBadge'
-// Mermaid is ~700kB. Loading it lazily keeps it out of the initial bundle for anyone who never
-// opens a diagram.
+import GeneratingState from './GeneratingState'
+import { Alert, Button, inputClass } from './ui'
+
+// Mermaid is ~700kB. Loading these lazily keeps them out of the initial bundle for anyone who
+// never opens a diagram.
 const MermaidDiagram = lazy(() => import('./MermaidDiagram'))
 const LLDView = lazy(() => import('./LLDView'))
 
@@ -17,16 +20,17 @@ const VISUAL_TABS: Partial<Record<StageType, string>> = {
 /** Stages whose visual view is a Mermaid diagram fetched from the backend. */
 const DIAGRAM_STAGES: StageType[] = ['hld', 'db_schema', 'kafka_events']
 
-const LABELS: Record<StageType, string> = {
-  boundaries: '1. Service Boundaries',
-  hld: '2. High-Level Design',
-  lld: '3. Low-Level Design',
-  db_schema: '4. DB Schemas',
-  kafka_events: '5. Kafka Event Contracts',
-  infra: '6. Docker / Kubernetes',
+const LABELS: Record<StageType, { title: string; blurb: string }> = {
+  boundaries: { title: 'Service Boundaries', blurb: 'Which services exist, and why' },
+  hld: { title: 'High-Level Design', blurb: 'Service map, sync vs async, datastores' },
+  lld: { title: 'Low-Level Design', blurb: 'Entities, API contracts, internal logic' },
+  db_schema: { title: 'DB Schemas', blurb: 'Tables, columns, indexes, keys' },
+  kafka_events: { title: 'Kafka Event Contracts', blurb: 'Topics, partitions, consumer groups' },
+  infra: { title: 'Docker / Kubernetes', blurb: 'Images, ports, probes, resources' },
 }
 
 interface Props {
+  index: number
   projectId: string
   stage: Stage
   /** Stages are gated: this one can only run once the previous one is approved. */
@@ -34,7 +38,7 @@ interface Props {
   onChanged: (stage: Stage) => void
 }
 
-export default function StagePanel({ projectId, stage, unlocked, onChanged }: Props) {
+export default function StagePanel({ index, projectId, stage, unlocked, onChanged }: Props) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -48,6 +52,7 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
   const visualLabel = VISUAL_TABS[stage.stage_type]
   const hasVisual = visualLabel !== undefined
   const needsDiagram = DIAGRAM_STAGES.includes(stage.stage_type)
+  const dirty = hasOutput && draft !== JSON.stringify(current, null, 2)
 
   // Reset the editor whenever the server hands us new content, so the textarea never shows a
   // stale draft from a previous generation.
@@ -93,107 +98,144 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
     act('save', () => api.saveStageEdit(projectId, stage.stage_type, parsed))
   }
 
+  const label = LABELS[stage.stage_type]
+  const locked = !unlocked && !hasOutput
+
   return (
-    <li className="p-4">
-      <div className="flex items-center justify-between gap-3">
+    <li id={`stage-${stage.stage_type}`} className={locked ? 'opacity-60' : ''}>
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
         <button
-          onClick={() => setOpen((o) => !o)}
-          className="text-left text-sm font-medium text-slate-800 hover:underline"
+          onClick={() => hasOutput && setOpen((o) => !o)}
+          disabled={!hasOutput}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
         >
-          {LABELS[stage.stage_type]}
-          {stage.version > 0 && (
-            <span className="ml-2 text-xs font-normal text-slate-400">v{stage.version}</span>
-          )}
+          <span
+            aria-hidden
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-line bg-canvas text-xs font-semibold text-ink-muted"
+          >
+            {index + 1}
+          </span>
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <span className="truncate text-sm font-medium text-ink">{label.title}</span>
+              {stage.version > 0 && (
+                <span className="shrink-0 rounded bg-canvas px-1.5 py-0.5 text-[10px] font-medium text-ink-faint">
+                  v{stage.version}
+                </span>
+              )}
+              {hasOutput && (
+                <span aria-hidden className="text-ink-faint">
+                  {open ? '▾' : '▸'}
+                </span>
+              )}
+            </span>
+            <span className="block truncate text-xs text-ink-faint">{label.blurb}</span>
+          </span>
         </button>
-        <div className="flex items-center gap-2">
+
+        <div className="flex shrink-0 items-center gap-2">
           <StageBadge status={stage.status} />
           {!approved && unlocked && (
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => act('run', () => api.runStage(projectId, stage.stage_type))}
               disabled={busy !== null}
-              className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
             >
-              {busy === 'run' ? 'Generating...' : stage.version > 0 ? 'Regenerate' : 'Generate'}
-            </button>
+              {busy === 'run' ? 'Generating…' : stage.version > 0 ? 'Regenerate' : 'Generate'}
+            </Button>
           )}
           {!approved && hasOutput && (
-            <button
+            <Button
+              size="sm"
               onClick={() => act('approve', () => api.approveStage(projectId, stage.stage_type))}
               disabled={busy !== null}
-              className="rounded border border-emerald-600 px-3 py-1 text-xs font-medium text-emerald-700 disabled:opacity-50"
+              className="border-emerald-400 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950"
             >
               Approve
-            </button>
+            </Button>
           )}
           {approved && (
-            <button
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={() => act('unapprove', () => api.unapproveStage(projectId, stage.stage_type))}
               disabled={busy !== null}
-              className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 disabled:opacity-50"
             >
               Unlock
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
-      {!unlocked && !hasOutput && (
-        <p className="mt-2 text-xs text-slate-400">Approve the previous stage to unlock this one.</p>
+      {(locked || error || busy === 'run') && (
+        <div className="space-y-2 px-4 pb-4">
+          {locked && (
+            <p className="text-xs text-ink-faint">
+              Approve the previous stage to unlock this one.
+            </p>
+          )}
+          {busy === 'run' && <GeneratingState stageType={stage.stage_type} />}
+          {error && <Alert onDismiss={() => setError(null)}>{error}</Alert>}
+        </div>
       )}
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
 
       {open && hasOutput && (
-        <div className="mt-3">
-          {hasVisual && (
-            <div className="mb-2 flex gap-1">
-              {(['visual', 'json'] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={`rounded px-2.5 py-1 text-xs font-medium ${
-                    view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  {v === 'visual' ? visualLabel : 'JSON'}
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="border-t border-line bg-canvas/60 p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {hasVisual && (
+              <div className="inline-flex rounded-md border border-line bg-surface p-0.5">
+                {(['visual', 'json'] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setView(v)}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                      view === v ? 'bg-ink text-white' : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {v === 'visual' ? visualLabel : 'JSON'}
+                  </button>
+                ))}
+              </div>
+            )}
+            {view === 'json' && !approved && (
+              <div className="ml-auto flex items-center gap-2">
+                {dirty && <span className="text-xs text-amber-700 dark:text-amber-400">Unsaved changes</span>}
+                <Button size="sm" onClick={handleSave} disabled={busy !== null || !dirty}>
+                  {busy === 'save' ? 'Saving…' : 'Save edits'}
+                </Button>
+              </div>
+            )}
+          </div>
 
           {hasVisual && view === 'visual' ? (
-            <Suspense fallback={<p className="text-xs text-slate-400">Loading...</p>}>
+            <Suspense fallback={<div className="p-6 text-xs text-ink-faint">Loading…</div>}>
               {needsDiagram ? (
                 mermaid ? (
                   <MermaidDiagram code={mermaid} />
                 ) : (
-                  <p className="text-xs text-slate-400">Loading diagram...</p>
+                  <div className="p-6 text-xs text-ink-faint">Loading diagram…</div>
                 )
               ) : (
                 <LLDView data={current} />
               )}
             </Suspense>
           ) : (
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              readOnly={approved}
-              spellCheck={false}
-              className="h-80 w-full rounded border border-slate-300 bg-slate-50 p-3 font-mono text-xs text-slate-800 read-only:opacity-70"
-            />
-          )}
-          {!approved && view === 'json' && (
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                onClick={handleSave}
-                disabled={busy !== null}
-                className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-              >
-                {busy === 'save' ? 'Saving...' : 'Save edits'}
-              </button>
-              <span className="text-xs text-slate-400">
-                Your edit is validated against the stage schema before it is stored.
-              </span>
-            </div>
+            <>
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                readOnly={approved}
+                spellCheck={false}
+                className={`mono h-96 w-full resize-y leading-relaxed ${inputClass} read-only:bg-canvas read-only:text-ink-muted`}
+              />
+              {!approved && (
+                <p className="mt-1.5 text-xs text-ink-faint">
+                  Edits are validated against the stage schema, and against the earlier stages,
+                  before they are stored.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}

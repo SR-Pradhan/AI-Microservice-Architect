@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import mermaid from 'mermaid'
+import { useTheme, type ResolvedTheme } from '../lib/theme'
 
+// Mermaid bakes colours into the SVG it produces, so it must be re-initialised and the diagram
+// re-rendered whenever the theme changes — otherwise a light diagram sits on a dark page.
+//
 // useMaxWidth:false stops Mermaid shrinking the SVG to fit its container — a 13-table ER diagram
 // scaled to fit is unreadable. Default ER layout is top-down, which stacks many tables into a tall
 // sparse column, so LR spreads them across the width instead.
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'neutral',
-  securityLevel: 'strict',
-  flowchart: { useMaxWidth: false },
-  er: { useMaxWidth: false, layoutDirection: 'LR' },
-})
+function configure(theme: ResolvedTheme) {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: theme === 'dark' ? 'dark' : 'neutral',
+    darkMode: theme === 'dark',
+    securityLevel: 'strict',
+    flowchart: { useMaxWidth: false },
+    er: { useMaxWidth: false, layoutDirection: 'LR' },
+  })
+}
 
 let renderCount = 0
 
@@ -28,8 +35,10 @@ export default function MermaidDiagram({ code }: { code: string }) {
   const [error, setError] = useState<string | null>(null)
   const [natural, setNatural] = useState<Size | null>(null)
   const [zoom, setZoom] = useState(1)
+  const { resolved } = useTheme()
 
   useEffect(() => {
+    configure(resolved)
     // Renders are async, so a fast re-render could otherwise paint an older diagram last.
     let cancelled = false
     const id = `mermaid-${renderCount++}`
@@ -68,7 +77,7 @@ export default function MermaidDiagram({ code }: { code: string }) {
       // Mermaid appends a hidden measuring node to <body> per render; drop it so they don't pile up.
       document.getElementById(`d${id}`)?.remove()
     }
-  }, [code])
+  }, [code, resolved])
 
   // Resize the SVG itself rather than CSS-transforming it: a transform scales what you see but not
   // the space the element reserves, which leaves a large blank gap when zoomed out.
@@ -87,42 +96,42 @@ export default function MermaidDiagram({ code }: { code: string }) {
 
   if (error) {
     return (
-      <div className="rounded border border-red-200 bg-red-50 p-3">
-        <p className="text-xs font-medium text-red-700">Could not draw the diagram</p>
-        <pre className="mt-1 overflow-x-auto text-xs text-red-600">{error}</pre>
+      <div className="rounded border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/60">
+        <p className="text-xs font-medium text-red-800 dark:text-red-200">Could not draw the diagram</p>
+        <pre className="mt-1 overflow-x-auto text-xs text-red-600 dark:text-red-300">{error}</pre>
       </div>
     )
   }
 
   return (
-    <div className="rounded border border-slate-200 bg-white">
-      <div className="flex items-center gap-1 border-b border-slate-100 px-2 py-1">
+    <div className="rounded border border-line bg-surface">
+      <div className="flex items-center gap-1 border-b border-line px-2 py-1">
         <button
           onClick={() => adjust(-ZOOM_STEP)}
           disabled={zoom <= MIN_ZOOM}
           aria-label="Zoom out"
-          className="rounded px-2 py-0.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+          className="rounded px-2 py-0.5 text-sm text-ink-muted hover:bg-canvas disabled:opacity-30"
         >
           −
         </button>
-        <span className="w-12 text-center text-xs tabular-nums text-slate-500">
+        <span className="w-12 text-center text-xs tabular-nums text-ink-muted">
           {Math.round(zoom * 100)}%
         </span>
         <button
           onClick={() => adjust(ZOOM_STEP)}
           disabled={zoom >= MAX_ZOOM}
           aria-label="Zoom in"
-          className="rounded px-2 py-0.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+          className="rounded px-2 py-0.5 text-sm text-ink-muted hover:bg-canvas disabled:opacity-30"
         >
           +
         </button>
         <button
           onClick={() => setZoom(1)}
-          className="ml-1 rounded px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-100"
+          className="ml-1 rounded px-2 py-0.5 text-xs text-ink-muted hover:bg-canvas"
         >
           100%
         </button>
-        <span className="ml-auto text-xs text-slate-400">scroll to pan</span>
+        <span className="ml-auto text-xs text-ink-faint">scroll to pan</span>
       </div>
       {/* max-h, not h: the panel shrinks to the diagram when the diagram is small. */}
       <div className="max-h-[80vh] overflow-auto p-3">

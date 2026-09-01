@@ -54,7 +54,7 @@ Run on a "Flipkart-like e-commerce" description, the generated scaffold was chec
 
 ```
 backend/    FastAPI orchestrator — stages, validation, export  (Python 3.12+, SQLAlchemy 2.0 async)
-frontend/   React + Vite + Tailwind review UI, Mermaid diagrams
+frontend/   React + Vite + Tailwind review UI, Mermaid diagrams, light/dark themes
 docker-compose.yml   Postgres + Redis for local development
 ```
 
