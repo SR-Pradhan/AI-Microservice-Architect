@@ -119,3 +119,46 @@ def test_component_used_by_unknown_service_is_rejected() -> None:
     ]}
     with pytest.raises(ConsistencyError, match="used_by unknown service 'GhostService'"):
         _check(infra)
+
+
+def test_pascal_case_service_hostname_is_rejected() -> None:
+    """A model writes 'InventoryService:8003' as a host; the generated DNS name is
+    'inventory-service', so the PascalCase form never resolves."""
+    bad = _service("OrderService", 8081, ["orders-postgres", "kafka"])
+    bad["env_vars"] = [{"name": "CATALOG_HOST", "value": "CatalogService:8082",
+                        "secret": False, "description": "-"}]
+    infra = {**VALID, "services": [bad, VALID["services"][1]]}
+    with pytest.raises(ConsistencyError, match="use 'catalog-service' or it will not resolve"):
+        _check(infra)
+
+
+def test_credentials_embedded_in_a_non_secret_value_are_rejected() -> None:
+    """DATABASE_URL with the password inline, marked secret:false, would land in a ConfigMap."""
+    bad = _service("OrderService", 8081, ["orders-postgres", "kafka"])
+    bad["env_vars"] = [{"name": "DATABASE_URL", "secret": False, "description": "-",
+                        "value": "postgresql://user:hunter2@orders-postgres:5432/orders"}]
+    infra = {**VALID, "services": [bad, VALID["services"][1]]}
+    with pytest.raises(ConsistencyError, match="embeds credentials .* not marked secret"):
+        _check(infra)
+
+
+def test_host_port_used_in_an_internal_connection_string_is_rejected() -> None:
+    """orders-postgres publishes on host 5432 here, but a component mapped to a different host
+    port is still reached on its container port from inside the network."""
+    infra = {
+        **VALID,
+        "infra_components": [
+            {"name": "orders-postgres", "image": "postgres:16-alpine", "port": 5433,
+             "used_by": ["OrderService"]},
+            *VALID["infra_components"][1:],
+        ],
+        "services": [
+            {**VALID["services"][0], "env_vars": [
+                {"name": "DATABASE_URL", "secret": False, "description": "-",
+                 "value": "jdbc:postgresql://orders-postgres:5433/orders"}
+            ]},
+            VALID["services"][1],
+        ],
+    }
+    with pytest.raises(ConsistencyError, match="port 5433, but inside the network it listens on 5432"):
+        _check(infra)

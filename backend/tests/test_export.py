@@ -153,3 +153,30 @@ def test_export_is_deterministic() -> None:
     """Same input, same bytes — because nothing here is model-authored."""
     stages = {"infra": INFRA}
     assert build_export("Shop", "A shop.", stages) == build_export("Shop", "A shop.", stages)
+
+
+def test_configmap_redacts_credentials_the_model_forgot_to_flag() -> None:
+    """Defence in depth: even if secret:false, a value with an embedded password stays out."""
+    service = {**SERVICE, "env_vars": [
+        {"name": "DATABASE_URL", "value": "postgresql://u:hunter2@db:5432/x",
+         "secret": False, "description": "-"},
+        {"name": "KAFKA_BROKERS", "value": "kafka:9092", "secret": False, "description": "-"},
+    ]}
+    out = k8s_configmap_for(service)
+    assert "hunter2" not in out.split("# Secrets")[0]
+    assert "KAFKA_BROKERS" in yaml.safe_load(out)["data"]
+    assert "DATABASE_URL" not in yaml.safe_load(out)["data"]
+
+
+def test_compose_maps_host_port_to_the_images_real_container_port() -> None:
+    """postgres always listens on 5432 inside; publishing "5433:5433" binds nothing."""
+    infra = {"services": [], "infra_components": [
+        {"name": "order-postgres", "image": "postgres:16-alpine", "port": 5433, "used_by": ["x"]},
+        {"name": "notification-mongo", "image": "mongo:7.0", "port": 27018, "used_by": ["x"]},
+        {"name": "custom", "image": "myapp:1.0", "port": 9999, "used_by": ["x"]},
+    ], "notes": "-"}
+    parsed = yaml.safe_load(compose_for(infra))
+    assert parsed["services"]["order-postgres"]["ports"] == ["5433:5432"]
+    assert parsed["services"]["notification-mongo"]["ports"] == ["27018:27017"]
+    # Unknown images fall back to the declared port.
+    assert parsed["services"]["custom"]["ports"] == ["9999:9999"]

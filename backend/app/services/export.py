@@ -69,11 +69,12 @@ def compose_for(infra: dict[str, Any]) -> str:
 
     for component in infra.get("infra_components", []):
         name = kebab(component["name"])
+        inside = container_port_for(component["image"], component["port"])
         lines += [
             f"  {name}:",
             f"    image: {_yaml_scalar(component['image'])}",
             "    ports:",
-            f"      - \"{component['port']}:{component['port']}\"",
+            f"      - \"{component['port']}:{inside}\"",
             "    restart: unless-stopped",
         ]
 
@@ -182,18 +183,54 @@ def k8s_configmap_for(service: dict[str, Any]) -> str:
         f"  name: {name}-config",
         "data:",
     ]
-    public = [e for e in service.get("env_vars", []) if not e.get("secret")]
+    public = [e for e in service.get("env_vars", []) if not is_secret(e)]
     if not public:
         lines.append("  {}")
     for env in public:
         lines.append(f"  {env['name']}: {_yaml_scalar(env['value'])}")
-    secrets = [e for e in service.get("env_vars", []) if e.get("secret")]
+    secrets = [e for e in service.get("env_vars", []) if is_secret(e)]
     if secrets:
         lines.append("")
         lines.append("# Secrets are deliberately NOT written here. Create them out of band:")
         names = " ".join(f"--from-literal={e['name']}=..." for e in secrets)
         lines.append(f"#   kubectl create secret generic {name}-secrets {names}")
     return "\n".join(lines) + "\n"
+
+
+# A URL with embedded credentials: scheme://user:password@host
+_CREDENTIAL_URL = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
+
+# The port an image listens on *inside* the container. The port a component declares is the host
+# port the author chose, and the two are only accidentally equal — postgres always listens on 5432
+# no matter which host port you map it to, so "5433:5433" publishes a port nothing is bound to.
+_CONTAINER_PORTS = {
+    "postgres": 5432,
+    "mysql": 3306,
+    "mariadb": 3306,
+    "mongo": 27017,
+    "redis": 6379,
+    "kafka": 9092,
+    "rabbitmq": 5672,
+    "elastic": 9200,
+}
+
+
+def container_port_for(image: str, declared: int) -> int:
+    """The in-container port for a well-known image, falling back to the declared port."""
+    haystack = image.lower()
+    for keyword, port in _CONTAINER_PORTS.items():
+        if keyword in haystack:
+            return port
+    return declared
+
+
+def is_secret(env: dict[str, Any]) -> bool:
+    """Treat a value with embedded credentials as secret even when the flag says otherwise.
+
+    A model will happily mark DATABASE_URL as non-secret while embedding the password in it. The
+    generator must not take that at face value — a ConfigMap is world-readable to the namespace.
+    """
+    return bool(env.get("secret")) or bool(_CREDENTIAL_URL.search(str(env.get("value", ""))))
 
 
 _SQL_ENGINES = ("postgres", "mysql", "mariadb", "cockroach")

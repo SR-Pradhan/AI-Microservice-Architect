@@ -79,7 +79,7 @@ npm run dev                              # http://localhost:5180
 ## Tests
 
 ```bash
-cd backend && .venv/bin/pytest -q        # 71 tests, no API key needed
+cd backend && .venv/bin/pytest -q        # 76 tests, no API key needed
 ```
 
 The suite runs against a real Postgres test database with a fake LLM, so it costs nothing and

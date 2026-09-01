@@ -368,6 +368,39 @@ def check_infra(infra: InfraOutput, prior_outputs: dict[str, Any]) -> list[str]:
                     f"(depends_on: {service.depends_on or 'nothing'})"
                 )
 
+    # Service-to-service hostnames must be the generated DNS name (order-service), not the design
+    # name (OrderService). PascalCase in a connection string simply will not resolve.
+    from app.services.export import kebab
+
+    from app.services.export import container_port_for
+
+    dns_names = {name: kebab(name) for name in infra_services}
+    # Inside the compose/k8s network a service reaches a component on its CONTAINER port. The
+    # component's declared port is the host mapping, and connecting to it from inside fails.
+    component_ports = {
+        c.name: container_port_for(c.image, c.port) for c in infra.infra_components
+    }
+    for name, service in infra_services.items():
+        for env in service.env_vars:
+            for other, dns in dns_names.items():
+                if other != dns and re.search(rf"\b{re.escape(other)}\b", env.value):
+                    problems.append(
+                        f"{name} env var {env.name} refers to host '{other}', but the generated "
+                        f"service is named '{dns}' — use '{dns}' or it will not resolve"
+                    )
+            for component, inside in component_ports.items():
+                match = re.search(rf"\b{re.escape(component)}:(\d+)", env.value)
+                if match and int(match.group(1)) != inside:
+                    problems.append(
+                        f"{name} env var {env.name} connects to {component} on port "
+                        f"{match.group(1)}, but inside the network it listens on {inside}"
+                    )
+            if not env.secret and re.search(r"://[^/\s:@]+:[^/\s@]+@", env.value):
+                problems.append(
+                    f"{name} env var {env.name} embeds credentials in its value but is not marked "
+                    f"secret — it would be written into a ConfigMap"
+                )
+
     for component in infra.infra_components:
         for user in component.used_by:
             if user not in infra_services:
