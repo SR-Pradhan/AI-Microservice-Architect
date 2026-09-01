@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     app_env: str = "local"
     database_url: str = "postgresql+asyncpg://architect:architect@localhost:5434/architect"
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:5180"
 
     # Which provider generates the stages: "anthropic" (Claude) or "gemini" (free tier).
     llm_provider: Literal["anthropic", "gemini"] = "anthropic"

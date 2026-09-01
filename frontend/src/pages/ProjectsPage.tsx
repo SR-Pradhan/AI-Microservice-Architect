@@ -15,6 +15,19 @@ export default function ProjectsPage() {
     load()
   }, [])
 
+  async function handleDelete(project: Project) {
+    // Deleting a project cascades to its six stages, so make the user confirm it deliberately.
+    if (!confirm(`Delete "${project.name}" and all its generated stages? This cannot be undone.`))
+      return
+    setError(null)
+    try {
+      await api.deleteProject(project.id)
+      await load()
+    } catch (err) {
+      setError(String(err))
+    }
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
@@ -70,11 +83,20 @@ export default function ProjectsPage() {
           <li className="p-4 text-sm text-slate-500">No projects yet.</li>
         )}
         {projects.map((p) => (
-          <li key={p.id} className="p-4">
-            <Link to={`/projects/${p.id}`} className="font-medium text-slate-900 hover:underline">
-              {p.name}
-            </Link>
-            <p className="mt-1 line-clamp-2 text-sm text-slate-500">{p.raw_description}</p>
+          <li key={p.id} className="group flex items-start justify-between gap-3 p-4">
+            <div className="min-w-0">
+              <Link to={`/projects/${p.id}`} className="font-medium text-slate-900 hover:underline">
+                {p.name}
+              </Link>
+              <p className="mt-1 line-clamp-2 text-sm text-slate-500">{p.raw_description}</p>
+            </div>
+            <button
+              onClick={() => handleDelete(p)}
+              aria-label={`Delete ${p.name}`}
+              className="shrink-0 rounded px-2 py-1 text-xs text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+            >
+              Delete
+            </button>
           </li>
         ))}
       </ul>
