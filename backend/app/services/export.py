@@ -43,12 +43,31 @@ _GENERATED_DIRECTIVES = ("FROM ", "WORKDIR ", "EXPOSE ", "CMD ", "ENTRYPOINT ")
 
 
 def dockerfile_for(service: dict[str, Any]) -> str:
-    lines = [
+    lines: list[str] = []
+
+    builder = service.get("builder_image")
+    if builder:
+        # Multi-stage: compile in the SDK image, ship only the artifact in a slim runtime.
+        lines += [f"FROM {builder} AS builder", "", "WORKDIR /app", ""]
+        lines += [
+            step
+            for step in service.get("builder_steps", [])
+            if not step.strip().upper().startswith(_GENERATED_DIRECTIVES)
+        ]
+        lines.append("")
+
+    lines += [
         f"FROM {service['base_image']}",
         "",
         "WORKDIR /app",
         "",
     ]
+
+    if builder:
+        for artifact in service.get("copy_from_builder", []):
+            lines.append(f"COPY --from=builder {artifact} ./")
+        if service.get("copy_from_builder"):
+            lines.append("")
     lines += [
         step
         for step in service.get("build_steps", [])
@@ -61,7 +80,8 @@ def dockerfile_for(service: dict[str, Any]) -> str:
         f"CMD {json.dumps(service['start_command'].split())}",
         "",
     ]
-    return "\n".join(lines)
+    # Collapse the blank runs the optional sections can leave behind.
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
 
 
 def compose_for(infra: dict[str, Any]) -> str:

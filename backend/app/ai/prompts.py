@@ -113,8 +113,21 @@ Kubernetes manifests are generated from what you return, so be precise rather th
 
 Rules you must follow:
 - Cover EVERY service, spelled exactly as in the low-level design.
-- base_image must match that service's tech_stack and be pinned to a specific tag. Never use
-  'latest'. Prefer slim or alpine runtime images over full SDK images.
+- base_image is the RUNTIME image, pinned to a specific tag. Never 'latest', and never an SDK or
+  build image: 'golang:1.22' ships the whole Go toolchain to production, and a JDK image ships a
+  compiler you do not need at runtime.
+- For a COMPILED language (Go, Java, Rust, .NET) you must use a multi-stage build: set
+  builder_image to the SDK image, put the compile steps in builder_steps, list the produced
+  artifacts in copy_from_builder, and set base_image to a slim runtime — alpine or distroless for
+  Go and Rust, a JRE image for Java. This is the difference between a 900MB image and a 30MB one.
+- For an INTERPRETED language (Node, Python, Ruby) leave builder_image null.
+- The build stage runs in /app, so every path in copy_from_builder must start with /app —
+  '/app/target/order-service.jar', never '/target/order-service.jar'.
+- If start_command hardcodes a port, it must be the same port you declared.
+- If start_command runs something that has to be produced first — 'node dist/main.js' needs
+  'npm run build', a jar needs a compile — then the step that produces it MUST be in the build.
+  A service that installs only production dependencies and then starts a file nothing built will
+  crash on boot.
 - build_steps are the Dockerfile lines between the base image and the start command, in order.
   Do not include FROM, EXPOSE, WORKDIR or CMD — those are generated for you. Copy the dependency
   manifest and install dependencies BEFORE copying the source, so Docker's layer cache works.
@@ -125,7 +138,13 @@ Rules you must follow:
 - depends_on must name infra_components you declared. A service that publishes or consumes events
   depends on Kafka. A service with its own datastore depends on that datastore.
 - env_vars must include the connection details a service needs (its database URL, the Kafka
-  brokers). Mark anything credential-like as secret.
+  brokers). Mark anything credential-like as secret — and note that a URL with the password
+  embedded in it (postgresql://user:pass@host/db) IS credential-like.
+- Service-to-service hostnames use the DEPLOYED name, which is the service name in lower kebab
+  case: OrderService is reachable at 'order-service', never at 'OrderService'. Getting this wrong
+  means the hostname does not resolve at runtime.
+- A service reaches a datastore on that datastore's own internal port, not the host port you
+  declared for it: Postgres is always 5432 inside the network, Mongo 27017, Redis 6379.
 - Set resource requests and limits deliberately per workload — a cache-backed read service is not
   the same shape as a payments service.
 """

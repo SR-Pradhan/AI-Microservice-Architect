@@ -31,7 +31,7 @@ meaning, not just shape, and feeds any contradiction back to the model for repai
 | 3 | A sync call in the HLD that no endpoint on the callee can receive |
 | 4 | A datastore engine that contradicts the HLD; an index on a column that doesn't exist |
 | 5 | A topic claiming a consumer whose LLD never subscribed; two services sharing a consumer group |
-| 6 | Two services bound to the same port; an unpinned base image; a missing datastore dependency |
+| 6 | An SDK image shipped as a runtime; a start command whose artifact nothing builds; a build artifact path outside the build stage; a PascalCase hostname that won't resolve; credentials embedded in a non-secret env var; two services on one port |
 
 **Deterministic generation.** The model supplies *facts*; the Dockerfiles, compose file, Kubernetes
 manifests and SQL DDL are generated from those validated facts by code. Two exports of the same
@@ -48,6 +48,7 @@ Run on a "Flipkart-like e-commerce" description, the generated scaffold was chec
 - all 18 Kubernetes manifests parse, with probes and resource limits
 - the generated DDL **executes against a real PostgreSQL** and creates every table
 - no secret value ever reaches a ConfigMap
+- compiled services get real multi-stage Dockerfiles (`golang` builder → `alpine` runtime)
 
 ## Layout
 
@@ -79,7 +80,7 @@ npm run dev                              # http://localhost:5180
 ## Tests
 
 ```bash
-cd backend && .venv/bin/pytest -q        # 76 tests, no API key needed
+cd backend && .venv/bin/pytest -q        # 86 tests, no API key needed
 ```
 
 The suite runs against a real Postgres test database with a fake LLM, so it costs nothing and

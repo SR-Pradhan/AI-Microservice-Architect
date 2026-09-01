@@ -162,3 +162,88 @@ def test_host_port_used_in_an_internal_connection_string_is_rejected() -> None:
     }
     with pytest.raises(ConsistencyError, match="port 5433, but inside the network it listens on 5432"):
         _check(infra)
+
+
+# --- v0.9.0: the two failures found by reviewing the first real Stage 6 output ---
+
+
+def test_sdk_image_as_runtime_is_rejected() -> None:
+    """The live run shipped golang:1.22-alpine as a runtime — the whole Go toolchain in prod."""
+    infra = {**VALID, "services": [
+        {**VALID["services"][0], "base_image": "golang:1.22-alpine"}, VALID["services"][1],
+    ]}
+    with pytest.raises(ConsistencyError, match="SDK/build image"):
+        _check(infra)
+
+
+def test_jre_image_is_accepted_but_jdk_is_not() -> None:
+    for image, ok in (("eclipse-temurin:21-jre-alpine", True), ("eclipse-temurin:21-jdk", False)):
+        infra = {**VALID, "services": [
+            {**VALID["services"][0], "base_image": image}, VALID["services"][1],
+        ]}
+        if ok:
+            _check(infra)
+        else:
+            with pytest.raises(ConsistencyError, match="SDK/build image"):
+                _check(infra)
+
+
+def test_start_command_with_no_build_step_is_rejected() -> None:
+    """The live run had CatalogService start 'node dist/main.js' with no build step at all."""
+    broken = {**VALID["services"][0],
+              "build_steps": ["COPY package*.json ./", "RUN npm ci --only=production", "COPY . ."],
+              "start_command": "node dist/main.js"}
+    infra = {**VALID, "services": [broken, VALID["services"][1]]}
+    with pytest.raises(ConsistencyError, match="no build step produces 'dist/main.js'"):
+        _check(infra)
+
+
+def test_start_command_with_a_real_build_step_passes() -> None:
+    fixed = {**VALID["services"][0],
+             "build_steps": ["COPY package*.json ./", "RUN npm ci", "COPY . .", "RUN npm run build"],
+             "start_command": "node dist/main.js"}
+    _check({**VALID, "services": [fixed, VALID["services"][1]]})
+
+
+def test_multi_stage_go_service_passes() -> None:
+    go = {**VALID["services"][0],
+          "base_image": "alpine:3.20",
+          "builder_image": "golang:1.22-alpine",
+          "builder_steps": ["COPY . .", "RUN go build -o cartservice ."],
+          "copy_from_builder": ["/app/cartservice"],
+          "build_steps": [],
+          "start_command": "./cartservice"}
+    _check({**VALID, "services": [go, VALID["services"][1]]})
+
+
+def test_build_stage_that_copies_nothing_out_is_rejected() -> None:
+    orphan = {**VALID["services"][0], "builder_image": "golang:1.22-alpine",
+              "builder_steps": ["RUN go build -o svc ."], "copy_from_builder": []}
+    infra = {**VALID, "services": [orphan, VALID["services"][1]]}
+    with pytest.raises(ConsistencyError, match="copies nothing out of it"):
+        _check(infra)
+
+
+def test_builder_steps_without_a_builder_image_are_rejected() -> None:
+    orphan = {**VALID["services"][0], "builder_steps": ["RUN go build ."]}
+    infra = {**VALID, "services": [orphan, VALID["services"][1]]}
+    with pytest.raises(ConsistencyError, match="builder_steps but no builder_image"):
+        _check(infra)
+
+
+def test_artifact_path_outside_the_builder_workdir_is_rejected() -> None:
+    """The generated build stage runs in /app, so '/target/app.jar' does not exist."""
+    bad = {**VALID["services"][0], "base_image": "eclipse-temurin:21-jre-alpine",
+           "builder_image": "maven:3.9-eclipse-temurin-21-alpine",
+           "builder_steps": ["RUN mvn package"], "copy_from_builder": ["/target/svc.jar"],
+           "build_steps": [], "start_command": "java -jar svc.jar"}
+    infra = {**VALID, "services": [bad, VALID["services"][1]]}
+    with pytest.raises(ConsistencyError, match=r"should be '/app/target/svc.jar'"):
+        _check(infra)
+
+
+def test_start_command_port_must_match_the_declared_port() -> None:
+    bad = {**VALID["services"][0], "start_command": "uvicorn main:app --host 0.0.0.0 --port 9999"}
+    infra = {**VALID, "services": [bad, VALID["services"][1]]}
+    with pytest.raises(ConsistencyError, match="starts on port 9999 but declares port 8081"):
+        _check(infra)

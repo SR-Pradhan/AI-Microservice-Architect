@@ -241,12 +241,27 @@ class InfraComponent(StageContract):
 class ServiceInfra(StageContract):
     name: str = Field(description="Must exactly match a service name from Stage 3")
     base_image: str = Field(
-        description="Docker base image matching that service's tech_stack, with a pinned tag"
+        description="The RUNTIME image, pinned. For a compiled language this is a slim runtime "
+        "(alpine, distroless, a JRE) — never the SDK or build image."
+    )
+    # Optional so a project generated before multi-stage support still validates.
+    builder_image: str | None = Field(
+        default=None,
+        description="For compiled languages (Go, Java, Rust, .NET): the SDK image used to build. "
+        "Leave null for interpreted languages that need no build stage.",
+    )
+    builder_steps: list[str] = Field(
+        default_factory=list, description="Build stage steps, in order. Only if builder_image is set."
+    )
+    copy_from_builder: list[str] = Field(
+        default_factory=list,
+        description="Paths to copy out of the build stage into the runtime image, "
+        "e.g. ['/app/target/order-service.jar']",
     )
     build_steps: list[str] = Field(
-        min_length=1,
-        description="Dockerfile RUN/COPY steps after the base image, in order, without the "
-        "FROM/EXPOSE/CMD lines — those are generated",
+        default_factory=list,
+        description="Runtime-stage RUN/COPY steps, in order, without FROM/WORKDIR/EXPOSE/CMD — "
+        "those are generated. May be empty when everything comes from copy_from_builder.",
     )
     start_command: str = Field(description="The container's start command, e.g. 'java -jar app.jar'")
     port: int = Field(ge=1, le=65535, description="Container port. Must be unique across services.")

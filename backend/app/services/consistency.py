@@ -291,6 +291,60 @@ def check_kafka_events(events: KafkaEventsOutput, prior_outputs: dict[str, Any])
     return problems
 
 
+# SDK / toolchain images. Shipping one as a runtime means shipping a compiler to production.
+_BUILD_ONLY_IMAGES = ("golang", "maven", "gradle", "rust:", "sdk", "-jdk", "jdk-", "openjdk")
+
+# Steps that actually produce something, as opposed to installing dependencies.
+_BUILD_COMMANDS = (
+    "npm run build", "yarn build", "pnpm build", "tsc", "go build", "cargo build",
+    "mvn package", "mvn install", "gradle build", "./gradlew", "dotnet publish", "make",
+)
+
+
+def _is_build_image(image: str) -> bool:
+    lowered = image.lower()
+    # A JRE image is a runtime even though it contains "j"; check it is not a JDK.
+    return any(marker in lowered for marker in _BUILD_ONLY_IMAGES)
+
+
+# Directories and extensions that mean "this is compiled/bundled output, not source".
+_BUILD_DIRS = ("dist/", "build/", "target/", "out/", "bin/", ".next/", "public/build/")
+_COMPILED_SUFFIXES = (".jar", ".war", ".dll", ".exe")
+
+
+def _needs_building(artifact: str) -> bool:
+    """Whether an artifact has to be produced by a build step.
+
+    'main.py' is source and is simply copied in; 'dist/main.js' and 'app.jar' are output that
+    something must produce first.
+    """
+    lowered = artifact.lower()
+    if lowered.startswith(_BUILD_DIRS) or f"/{lowered}".find("/dist/") > -1:
+        return True
+    if lowered.endswith(_COMPILED_SUFFIXES):
+        return True
+    # A bare name with no extension is a compiled binary (./cartservice).
+    return "." not in lowered.rsplit("/", 1)[-1]
+
+
+# Extensions that mark a token as a built artifact rather than an argument.
+_ARTIFACT_SUFFIXES = (".js", ".mjs", ".cjs", ".jar", ".war", ".py", ".rb", ".php", ".dll", ".sh")
+
+
+def _artifact_of(start_command: str) -> str | None:
+    """The file a start command runs, if it names one.
+
+    'node dist/main.js' -> 'dist/main.js', 'java -jar app.jar' -> 'app.jar', './svc' -> 'svc'.
+    Must not match arguments that merely contain dots — '--host 0.0.0.0' names no artifact.
+    """
+    for token in start_command.split():
+        if token.startswith("-"):
+            continue
+        if token.startswith("./") or "/" in token or token.lower().endswith(_ARTIFACT_SUFFIXES):
+            return token.lstrip("./")
+    return None
+
+
 def _engine_stem_haystack(image: str) -> str:
     """The image name with punctuation stripped, so a stem can be searched inside it."""
     return re.sub(r"[^a-z0-9]", "", image.lower())
@@ -334,6 +388,58 @@ def check_infra(infra: InfraOutput, prior_outputs: dict[str, Any]) -> list[str]:
             problems.append(
                 f"{name} base image '{service.base_image}' is not pinned to a specific tag"
             )
+
+        if _is_build_image(service.base_image):
+            problems.append(
+                f"{name} runs on '{service.base_image}', which is an SDK/build image — it ships a "
+                f"whole toolchain to production. Use a multi-stage build: put it in builder_image "
+                f"and set base_image to a slim runtime (alpine, distroless, or a JRE)"
+            )
+
+        # The generated builder stage always runs in /app, so an artifact path outside it cannot
+        # exist. This is checkable precisely because the WORKDIR is ours, not the model's.
+        for path in service.copy_from_builder:
+            if not path.startswith(("/app/", "/app")) or path == "/app":
+                problems.append(
+                    f"{name} copies '{path}' out of the build stage, but that stage builds in "
+                    f"/app — the path should be '/app{path if path.startswith('/') else '/' + path}'"
+                )
+
+        # A start command that hardcodes a different port than the one exposed and probed.
+        port_flag = re.search(r"--port[= ](\d+)|(?<!\S)-p[= ](\d+)", service.start_command)
+        if port_flag:
+            started = int(port_flag.group(1) or port_flag.group(2))
+            if started != service.port:
+                problems.append(
+                    f"{name} starts on port {started} but declares port {service.port} — the "
+                    f"health probe and service definition would point at the wrong port"
+                )
+
+        if service.builder_image and not service.copy_from_builder:
+            problems.append(
+                f"{name} has a build stage but copies nothing out of it — the compiled artifact "
+                f"would never reach the runtime image"
+            )
+        if service.builder_steps and not service.builder_image:
+            problems.append(f"{name} has builder_steps but no builder_image to run them in")
+        if not service.build_steps and not service.copy_from_builder:
+            problems.append(
+                f"{name} has no build steps and copies nothing from a build stage — nothing would "
+                f"be put into the image"
+            )
+
+        # A start command that runs built output needs something in the build that produces it.
+        artifact = _artifact_of(service.start_command)
+        if artifact and _needs_building(artifact):
+            all_steps = " ".join(service.build_steps + service.builder_steps).lower()
+            produced = artifact.lower() in all_steps or artifact.split("/")[0].lower() in all_steps
+            copied = any(artifact.lower() in path.lower() for path in service.copy_from_builder)
+            builds = any(command in all_steps for command in _BUILD_COMMANDS)
+            if not (produced or copied or builds):
+                problems.append(
+                    f"{name} starts '{service.start_command}' but no build step produces "
+                    f"'{artifact}' — the container would crash on boot"
+                )
 
     components = {c.name: c for c in infra.infra_components}
     kafka_components = {n for n, c in components.items() if "kafka" in c.image.lower()}

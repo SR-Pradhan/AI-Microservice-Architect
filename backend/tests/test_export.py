@@ -180,3 +180,18 @@ def test_compose_maps_host_port_to_the_images_real_container_port() -> None:
     assert parsed["services"]["notification-mongo"]["ports"] == ["27018:27017"]
     # Unknown images fall back to the declared port.
     assert parsed["services"]["custom"]["ports"] == ["9999:9999"]
+
+
+def test_multi_stage_dockerfile() -> None:
+    go = {**SERVICE, "base_image": "alpine:3.20", "builder_image": "golang:1.22-alpine",
+          "builder_steps": ["COPY go.mod ./", "RUN go build -o svc ."],
+          "copy_from_builder": ["/app/svc"], "build_steps": [], "start_command": "./svc"}
+    out = dockerfile_for(go)
+    assert out.startswith("FROM golang:1.22-alpine AS builder")
+    assert "RUN go build -o svc ." in out
+    assert "FROM alpine:3.20" in out
+    assert "COPY --from=builder /app/svc ./" in out
+    assert 'CMD ["./svc"]' in out
+    # The runtime FROM must come after the builder's steps, not before them.
+    assert out.index("RUN go build") < out.index("FROM alpine:3.20")
+    assert "\n\n\n" not in out
