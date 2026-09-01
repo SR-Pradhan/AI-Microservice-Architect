@@ -65,20 +65,20 @@ export default function ProjectsPage() {
 
   return (
     <AppShell>
-      <section className="bg-grid -mx-6 -mt-8 border-b border-line px-6 pb-10 pt-14">
+      <section className="bg-grid -mx-6 -mt-8 border-b border-line px-6 pb-8 pt-10">
         <div>
-          <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight text-ink">
+          <h1 className="max-w-3xl text-3xl font-semibold leading-tight tracking-tight text-ink sm:text-4xl">
             Describe a system.
             <br />
             <span className="text-ink-muted">Get an architecture you can actually ship.</span>
           </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-muted">
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-muted">
             Six stages, each one reviewed and approved by you before the next runs — boundaries,
             high-level design, contracts, schemas, event topics, and deployment manifests. Every
             stage is validated against the ones before it.
           </p>
 
-          <ol className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-2 text-xs">
+          <ol className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-2 text-xs">
             {STEPS.map((step, i) => (
               <li key={step} className="flex items-center gap-2">
                 <span className="rounded-full border border-line bg-surface px-2.5 py-1 font-medium text-ink-muted">
@@ -90,7 +90,7 @@ export default function ProjectsPage() {
           </ol>
 
           {stats && stats.total > 0 && (
-            <p className="mt-6 text-xs text-ink-faint">
+            <p className="mt-5 text-xs text-ink-faint">
               <span className="font-medium text-ink-muted">{stats.total}</span> project
               {stats.total === 1 ? '' : 's'} ·{' '}
               <span className="font-medium text-ink-muted">{stats.complete}</span> complete ·{' '}
@@ -100,7 +100,7 @@ export default function ProjectsPage() {
         </div>
       </section>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-7 grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="order-2 lg:order-1">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-faint">Projects</h2>
 
