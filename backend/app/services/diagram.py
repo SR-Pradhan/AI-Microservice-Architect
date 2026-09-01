@@ -113,7 +113,42 @@ def db_schema_to_mermaid(schema: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-RENDERERS = {StageType.HLD: hld_to_mermaid, StageType.DB_SCHEMA: db_schema_to_mermaid}
+def kafka_events_to_mermaid(events: dict[str, Any]) -> str:
+    """Topic-centric view: producer -> topic -> each consumer, labelled by consumer group."""
+    lines = ["flowchart LR"]
+    services: set[str] = set()
+
+    for topic in events.get("topics", []):
+        services.add(topic.get("producer", ""))
+        for consumer in topic.get("consumers", []):
+            services.add(consumer.get("service", ""))
+
+    for service in sorted(s for s in services if s):
+        lines.append(f'    {_node_id(service)}["{_quote(service)}"]')
+
+    for topic in events.get("topics", []):
+        name = topic.get("name", "")
+        topic_id = _node_id("topic_" + name)
+        key = _quote(topic.get("partition_key", ""))
+        partitions = topic.get("partitions", "")
+        lines.append(
+            f'    {topic_id}[/"{_quote(name)}<br/>key: {key} · {partitions}p"/]'
+        )
+        lines.append(f'    {_node_id(topic.get("producer", ""))} --> {topic_id}')
+        for consumer in topic.get("consumers", []):
+            lines.append(
+                f'    {topic_id} -.->|"{_quote(consumer.get("consumer_group", ""))}"| '
+                f'{_node_id(consumer.get("service", ""))}'
+            )
+
+    return "\n".join(lines)
+
+
+RENDERERS = {
+    StageType.HLD: hld_to_mermaid,
+    StageType.DB_SCHEMA: db_schema_to_mermaid,
+    StageType.KAFKA_EVENTS: kafka_events_to_mermaid,
+}
 
 
 def render_stage(stage_type: StageType, output: dict[str, Any]) -> str:

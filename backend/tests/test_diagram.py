@@ -3,7 +3,12 @@
 import pytest
 
 from app.models.enums import StageType
-from app.services.diagram import db_schema_to_mermaid, hld_to_mermaid, render_stage
+from app.services.diagram import (
+    db_schema_to_mermaid,
+    hld_to_mermaid,
+    kafka_events_to_mermaid,
+    render_stage,
+)
 
 HLD = {
     "services": [
@@ -108,6 +113,35 @@ def test_reference_to_an_unknown_table_is_skipped() -> None:
     }]}
     out = db_schema_to_mermaid(schema)
     assert "elsewhere" not in out
+
+
+EVENTS = {
+    "topics": [
+        {
+            "name": "order.placed",
+            "producer": "OrderService",
+            "partition_key": "orderId",
+            "partitions": 6,
+            "consumers": [
+                {"service": "CartService", "consumer_group": "cart-group"},
+                {"service": "NotificationService", "consumer_group": "notif-group"},
+            ],
+        }
+    ]
+}
+
+
+def test_event_flow_shows_topic_producer_and_consumer_groups() -> None:
+    out = kafka_events_to_mermaid(EVENTS)
+    assert out.startswith("flowchart LR")
+    # The topic node carries the partition key and count — the two things that decide ordering.
+    assert 'topic_order_placed[/"order.placed<br/>key: orderId · 6p"/]' in out
+    assert "OrderService --> topic_order_placed" in out
+    # Consumer edges are labelled by group, so a shared group is visible in the picture.
+    assert 'topic_order_placed -.->|"cart-group"| CartService' in out
+    assert 'topic_order_placed -.->|"notif-group"| NotificationService' in out
+    # Each service appears exactly once even though it may touch several topics.
+    assert out.count('CartService["CartService"]') == 1
 
 
 def test_unsupported_stage_raises() -> None:

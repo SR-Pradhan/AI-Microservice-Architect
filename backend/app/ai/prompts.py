@@ -84,11 +84,33 @@ Rules you must follow:
 - In notes, cover partitioning or sharding, retention, and the hot read/write paths.
 """
 
+KAFKA_EVENTS_INSTRUCTIONS = """\
+Define the Kafka event contract for every asynchronous flow in the approved high-level design.
+
+Rules you must follow:
+- One topic per event in the HLD, named exactly as the HLD names it. Do not invent topics for
+  events that are not in the design, and do not drop any.
+- The producer and the consumer services must match the HLD exactly.
+- partition_key MUST be one of the fields you list in payload_fields. Choose it for ordering:
+  events sharing that key are delivered in order, so use the id of the aggregate whose sequence
+  matters (usually the order or the entity being changed), never a random or timestamp field.
+- Explain the ordering guarantee your partition key actually buys in ordering_notes.
+- Give every consumer its own consumer_group. Two different services must never share a group —
+  they would steal each other's messages instead of both receiving them.
+- The payload carries what a consumer needs to act without calling back to the producer, but it is
+  not the whole entity. Include ids, the changed state, and a timestamp.
+- Set retention deliberately: short for transient notifications, long or compacted for events that
+  rebuild state.
+- dead_letter_strategy must say concretely how many retries, with what backoff, and where a
+  poison message ends up.
+"""
+
 STAGE_INSTRUCTIONS = {
     StageType.BOUNDARIES: BOUNDARIES_INSTRUCTIONS,
     StageType.HLD: HLD_INSTRUCTIONS,
     StageType.LLD: LLD_INSTRUCTIONS,
     StageType.DB_SCHEMA: DB_SCHEMA_INSTRUCTIONS,
+    StageType.KAFKA_EVENTS: KAFKA_EVENTS_INSTRUCTIONS,
 }
 
 

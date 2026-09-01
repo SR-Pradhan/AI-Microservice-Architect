@@ -190,12 +190,45 @@ class DBSchemaOutput(StageContract):
     services: list[ServiceSchema] = Field(min_length=2)
 
 
-# Stages 5-6 land in later versions.
+class TopicConsumer(StageContract):
+    service: str = Field(description="Must be a service that consumes this event in the HLD")
+    consumer_group: str = Field(description="Kafka consumer group id, e.g. inventory-service-group")
+    purpose: str = Field(description="What this consumer does when the event arrives")
+
+
+class KafkaTopic(StageContract):
+    name: str = Field(description="Must exactly match an event name from the HLD, e.g. order.placed")
+    producer: str
+    consumers: list[TopicConsumer] = Field(min_length=1)
+    partition_key: str = Field(
+        description="A field from payload_fields. Determines ordering — events sharing this key "
+        "are delivered in order."
+    )
+    partitions: int = Field(ge=1, le=64)
+    retention: str = Field(description="e.g. '7 days' or 'compacted'")
+    payload_fields: list[DataField] = Field(min_length=1)
+    ordering_notes: str = Field(description="Why this partition key, and what ordering it guarantees")
+
+
+class KafkaEventsOutput(StageContract):
+    """Stage 5 output: the event contracts behind every async flow in the HLD."""
+
+    topics: list[KafkaTopic] = Field(min_length=1)
+    dead_letter_strategy: str = Field(
+        description="What happens to a message a consumer cannot process: retries, backoff, DLQ"
+    )
+    schema_evolution_notes: str = Field(
+        description="How a field is added or removed without breaking existing consumers"
+    )
+
+
+# Stage 6 lands in a later version.
 STAGE_CONTRACTS: dict[StageType, type[StageContract]] = {
     StageType.BOUNDARIES: BoundariesOutput,
     StageType.HLD: HLDOutput,
     StageType.LLD: LLDOutput,
     StageType.DB_SCHEMA: DBSchemaOutput,
+    StageType.KAFKA_EVENTS: KafkaEventsOutput,
 }
 
 

@@ -10,7 +10,13 @@ Stage Executor treats exactly like a schema failure: feed the problem back and a
 
 from typing import Any, Callable
 
-from app.ai.contracts import DBSchemaOutput, HLDOutput, LLDOutput, StageContract
+from app.ai.contracts import (
+    DBSchemaOutput,
+    HLDOutput,
+    KafkaEventsOutput,
+    LLDOutput,
+    StageContract,
+)
 from app.models.enums import StageType
 
 
@@ -203,11 +209,92 @@ def check_db_schema(schema: DBSchemaOutput, prior_outputs: dict[str, Any]) -> li
     return problems
 
 
+def check_kafka_events(events: KafkaEventsOutput, prior_outputs: dict[str, Any]) -> list[str]:
+    """The spec's explicit Stage 5 requirement.
+
+    Every consumer a topic lists must actually be a subscriber in the Stage 3 LLD, and every event
+    in the HLD must have a topic. Without this, the event contracts drift from the design they are
+    supposed to implement and nothing else would ever notice.
+    """
+    hld = prior_outputs.get(StageType.HLD.value) or {}
+    lld = prior_outputs.get(StageType.LLD.value) or {}
+    flows = {f["event"]: f for f in hld.get("async_flows", [])}
+    if not flows:
+        return []
+
+    problems: list[str] = []
+    topics = {t.name: t for t in events.topics}
+
+    for missing in sorted(set(flows) - set(topics)):
+        problems.append(f"HLD event '{missing}' has no topic")
+    for extra in sorted(set(topics) - set(flows)):
+        problems.append(f"Topic '{extra}' does not correspond to any event in the HLD")
+
+    lld_services = {s["name"]: s for s in lld.get("services", [])}
+
+    for name, topic in topics.items():
+        flow = flows.get(name)
+        if flow is None:
+            continue  # already reported as an extra topic
+
+        if topic.producer != flow["producer"]:
+            problems.append(
+                f"Topic '{name}' is produced by {topic.producer}, but the HLD says "
+                f"{flow['producer']}"
+            )
+
+        listed = {c.service for c in topic.consumers}
+        expected = set(flow.get("consumers", []))
+        for missing in sorted(expected - listed):
+            problems.append(f"Topic '{name}' does not list {missing}, which consumes it in the HLD")
+        for extra in sorted(listed - expected):
+            problems.append(f"Topic '{name}' lists consumer {extra}, which does not consume it in the HLD")
+
+        # The spec's requirement: a consumer must actually declare a subscription in its LLD.
+        for consumer in topic.consumers:
+            service = lld_services.get(consumer.service)
+            if service is None:
+                problems.append(f"Topic '{name}' lists unknown service '{consumer.service}'")
+            elif name not in service.get("consumed_events", []):
+                problems.append(
+                    f"Topic '{name}' lists {consumer.service} as a consumer, but that service's "
+                    f"LLD does not declare '{name}' in consumed_events"
+                )
+
+        producer_lld = lld_services.get(topic.producer)
+        if producer_lld is not None and name not in producer_lld.get("published_events", []):
+            problems.append(
+                f"Topic '{name}' is produced by {topic.producer}, but that service's LLD does not "
+                f"declare it in published_events"
+            )
+
+        # Two services sharing a consumer group would steal each other's messages.
+        groups: dict[str, str] = {}
+        for consumer in topic.consumers:
+            owner = groups.get(consumer.consumer_group)
+            if owner and owner != consumer.service:
+                problems.append(
+                    f"Topic '{name}': {consumer.service} and {owner} share consumer group "
+                    f"'{consumer.consumer_group}' — they would steal each other's messages"
+                )
+            groups[consumer.consumer_group] = consumer.service
+
+        field_names = {f.name for f in topic.payload_fields}
+        if topic.partition_key not in field_names:
+            problems.append(
+                f"Topic '{name}' partitions on '{topic.partition_key}', which is not one of its "
+                f"payload fields ({', '.join(sorted(field_names))})"
+            )
+
+    return problems
+
+
 # One optional checker per stage. Stages with no entry are schema-validated only.
 CROSS_STAGE_CHECKS: dict[StageType, Callable[[Any, dict[str, Any]], list[str]]] = {
     StageType.HLD: check_hld,
     StageType.LLD: check_lld,
     StageType.DB_SCHEMA: check_db_schema,
+    StageType.KAFKA_EVENTS: check_kafka_events,
 }
 
 

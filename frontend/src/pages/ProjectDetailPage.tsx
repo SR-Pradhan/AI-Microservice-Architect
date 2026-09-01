@@ -26,12 +26,14 @@ export default function ProjectDetailPage() {
   const byType = new Map(project.stages.map((s) => [s.stage_type, s]))
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
+    <div className="mx-auto max-w-7xl p-8">
       <Link to="/" className="text-sm text-slate-500 hover:underline">
         &larr; All projects
       </Link>
       <h1 className="mt-3 text-2xl font-semibold text-slate-900">{project.name}</h1>
-      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{project.raw_description}</p>
+      <p className="mt-2 max-w-3xl whitespace-pre-wrap text-sm text-slate-600">
+        {project.raw_description}
+      </p>
 
       <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Pipeline</h2>
       <ul className="mt-3 divide-y divide-slate-200 rounded-lg border border-slate-200">

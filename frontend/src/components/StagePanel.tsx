@@ -11,10 +11,11 @@ const VISUAL_TABS: Partial<Record<StageType, string>> = {
   hld: 'Diagram',
   lld: 'Contracts',
   db_schema: 'ER Diagram',
+  kafka_events: 'Event Flow',
 }
 
 /** Stages whose visual view is a Mermaid diagram fetched from the backend. */
-const DIAGRAM_STAGES: StageType[] = ['hld', 'db_schema']
+const DIAGRAM_STAGES: StageType[] = ['hld', 'db_schema', 'kafka_events']
 
 const LABELS: Record<StageType, string> = {
   boundaries: '1. Service Boundaries',
