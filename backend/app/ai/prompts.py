@@ -65,10 +65,30 @@ Rules you must follow:
   what happens on retry, ordering guarantees. Be specific, not generic.
 """
 
+DB_SCHEMA_INSTRUCTIONS = """\
+Design the datastore for every service in the approved low-level design.
+
+Rules you must follow:
+- Cover EVERY service, spelled exactly, and use the exact engine that service was given in the HLD.
+  Do not switch a service to a different database.
+- Every entity from the LLD must have exactly one table. Do not create a table for another
+  service's entity — each service owns its own data.
+- Every table needs a primary key column.
+- For a non-relational engine (Redis, MongoDB, ...), still describe it as tables and columns:
+  the collection or key pattern is the table, its fields are the columns. Say so in notes.
+- Index only what a real query needs, and state that query in the rationale. Do not add indexes
+  speculatively — every index costs write throughput.
+- Index columns must be columns that actually exist on that table.
+- A foreign key to a table in ANOTHER service is a logical reference only, never a database
+  constraint — a real FK across services couples their datastores and breaks the boundary.
+- In notes, cover partitioning or sharding, retention, and the hot read/write paths.
+"""
+
 STAGE_INSTRUCTIONS = {
     StageType.BOUNDARIES: BOUNDARIES_INSTRUCTIONS,
     StageType.HLD: HLD_INSTRUCTIONS,
     StageType.LLD: LLD_INSTRUCTIONS,
+    StageType.DB_SCHEMA: DB_SCHEMA_INSTRUCTIONS,
 }
 
 

@@ -258,11 +258,55 @@ async def test_full_three_stage_run(db: AsyncSession, project: Project) -> None:
     assert set(lld.input_snapshot["prior_outputs"]) == {"boundaries", "hld"}
 
 
+def _schema(service: str, entity: str, table: str) -> dict:
+    return {
+        "name": service,
+        "engine": "PostgreSQL",
+        "tables": [
+            {
+                "name": table,
+                "entity": entity,
+                "columns": [
+                    {"name": "id", "type": "UUID", "nullable": False,
+                     "primary_key": True, "description": "-"}
+                ],
+                "indexes": [],
+                "foreign_keys": [],
+            }
+        ],
+        "notes": "-",
+    }
+
+
+VALID_DB_SCHEMA = {
+    "services": [
+        _schema("OrderService", "Order", "orders"),
+        _schema("PaymentService", "Payment", "payments"),
+    ]
+}
+
+IMPLEMENTED = (StageType.BOUNDARIES, StageType.HLD, StageType.LLD, StageType.DB_SCHEMA)
+SCRIPT = [VALID_OUTPUT, VALID_HLD, VALID_LLD, VALID_DB_SCHEMA]
+
+
+@pytest.mark.asyncio
+async def test_all_implemented_stages_run_in_order(db: AsyncSession, project: Project) -> None:
+    llm = FakeLLM(list(SCRIPT))
+    for stage_type in IMPLEMENTED:
+        stage = await stage_executor.run_stage(db, project, stage_type, llm)
+        assert stage.status is StageStatus.GENERATED
+        await stage_executor.approve_stage(db, project, stage_type)
+
+    # Stage 4 must receive every earlier stage, not just the one before it.
+    schema = await stage_executor.get_stage(db, project.id, StageType.DB_SCHEMA)
+    assert set(schema.input_snapshot["prior_outputs"]) == {"boundaries", "hld", "lld"}
+
+
 @pytest.mark.asyncio
 async def test_unimplemented_stage_reports_clearly(db: AsyncSession, project: Project) -> None:
-    llm = FakeLLM([VALID_OUTPUT, VALID_HLD, VALID_LLD])
-    for stage_type in (StageType.BOUNDARIES, StageType.HLD, StageType.LLD):
+    llm = FakeLLM(list(SCRIPT))
+    for stage_type in IMPLEMENTED:
         await stage_executor.run_stage(db, project, stage_type, llm)
         await stage_executor.approve_stage(db, project, stage_type)
     with pytest.raises(NotImplementedError, match="not implemented yet"):
-        await stage_executor.run_stage(db, project, StageType.DB_SCHEMA, llm)
+        await stage_executor.run_stage(db, project, StageType.KAFKA_EVENTS, llm)

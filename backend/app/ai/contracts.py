@@ -136,11 +136,66 @@ class LLDOutput(StageContract):
     services: list[ServiceLLD] = Field(min_length=2)
 
 
-# Stages 4-6 land in later versions.
+class Column(StageContract):
+    """A column in a relational table, or a field in a document / key-value record."""
+
+    name: str = Field(description="snake_case, e.g. total_amount")
+    type: str = Field(description="Store-native type, e.g. UUID, TEXT, NUMERIC(12,2), TIMESTAMPTZ")
+    nullable: bool = False
+    primary_key: bool = False
+    description: str
+
+
+class Index(StageContract):
+    name: str
+    columns: list[str] = Field(min_length=1, description="Must be columns of this table")
+    unique: bool = False
+    rationale: str = Field(description="Which query this index exists to serve")
+
+
+class ForeignKeyRef(StageContract):
+    """A reference to another entity.
+
+    Within a service this is a real FK constraint. Across services it is a *logical* reference only —
+    a database-level FK between services would couple their datastores and break the boundary.
+    """
+
+    column: str
+    references_table: str
+    references_service: str = Field(
+        description="The service that owns the referenced table. May be this same service."
+    )
+
+
+class Table(StageContract):
+    name: str = Field(description="snake_case plural, e.g. orders")
+    entity: str = Field(description="The Stage 3 entity this table stores, spelled exactly")
+    columns: list[Column] = Field(min_length=1)
+    indexes: list[Index] = Field(default_factory=list)
+    foreign_keys: list[ForeignKeyRef] = Field(default_factory=list)
+
+
+class ServiceSchema(StageContract):
+    name: str = Field(description="Must exactly match a service name from Stage 2")
+    engine: str = Field(description="Must match the datastore chosen for this service in Stage 2")
+    tables: list[Table] = Field(
+        min_length=1, description="Tables, collections or key patterns depending on the engine"
+    )
+    notes: str = Field(description="Partitioning, retention, hot paths, migration concerns")
+
+
+class DBSchemaOutput(StageContract):
+    """Stage 4 output: the physical datastore design for every service."""
+
+    services: list[ServiceSchema] = Field(min_length=2)
+
+
+# Stages 5-6 land in later versions.
 STAGE_CONTRACTS: dict[StageType, type[StageContract]] = {
     StageType.BOUNDARIES: BoundariesOutput,
     StageType.HLD: HLDOutput,
     StageType.LLD: LLDOutput,
+    StageType.DB_SCHEMA: DBSchemaOutput,
 }
 
 

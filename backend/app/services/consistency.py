@@ -10,7 +10,7 @@ Stage Executor treats exactly like a schema failure: feed the problem back and a
 
 from typing import Any, Callable
 
-from app.ai.contracts import HLDOutput, LLDOutput, StageContract
+from app.ai.contracts import DBSchemaOutput, HLDOutput, LLDOutput, StageContract
 from app.models.enums import StageType
 
 
@@ -132,10 +132,82 @@ def check_lld(lld: LLDOutput, prior_outputs: dict[str, Any]) -> list[str]:
     return problems
 
 
+def check_db_schema(schema: DBSchemaOutput, prior_outputs: dict[str, Any]) -> list[str]:
+    """The schema must store exactly what the LLD defined, in the engine the HLD chose."""
+    hld = prior_outputs.get(StageType.HLD.value) or {}
+    lld = prior_outputs.get(StageType.LLD.value) or {}
+    lld_services = {s["name"]: s for s in lld.get("services", [])}
+    if not lld_services:
+        return []
+
+    problems: list[str] = []
+    schema_services = {s.name: s for s in schema.services}
+
+    for name in sorted(set(schema_services) - set(lld_services)):
+        problems.append(f"Schema describes '{name}', which has no low-level design")
+    for name in sorted(set(lld_services) - set(schema_services)):
+        problems.append(f"Service '{name}' has no datastore schema")
+
+    engines = {s["name"]: s["datastore"] for s in hld.get("services", [])}
+    # An entity belongs to exactly one service; used to catch a service storing another's data.
+    entity_owner = {
+        entity["name"]: service["name"]
+        for service in lld.get("services", [])
+        for entity in service.get("entities", [])
+    }
+
+    for name, service in schema_services.items():
+        expected_engine = engines.get(name)
+        if expected_engine and expected_engine.lower() not in service.engine.lower():
+            problems.append(
+                f"{name} uses engine '{service.engine}', but the HLD chose '{expected_engine}'"
+            )
+
+        owned = {e["name"] for e in lld_services.get(name, {}).get("entities", [])}
+        stored = {t.entity for t in service.tables}
+        for missing in sorted(owned - stored):
+            problems.append(f"{name} entity '{missing}' has no table")
+        for extra in sorted(stored - owned):
+            owner = entity_owner.get(extra)
+            if owner and owner != name:
+                problems.append(
+                    f"{name} has a table for entity '{extra}', which is owned by {owner} — "
+                    f"each service must own its own data"
+                )
+            elif not owner:
+                problems.append(f"{name} has a table for '{extra}', which is not an LLD entity")
+
+        for table in service.tables:
+            column_names = {c.name for c in table.columns}
+            if not any(c.primary_key for c in table.columns):
+                problems.append(f"{name}.{table.name} has no primary key column")
+            for index in table.indexes:
+                for column in index.columns:
+                    if column not in column_names:
+                        problems.append(
+                            f"{name}.{table.name} index '{index.name}' uses column '{column}', "
+                            f"which does not exist on that table"
+                        )
+            for fk in table.foreign_keys:
+                if fk.column not in column_names:
+                    problems.append(
+                        f"{name}.{table.name} foreign key uses column '{fk.column}', which does "
+                        f"not exist on that table"
+                    )
+                if fk.references_service not in lld_services:
+                    problems.append(
+                        f"{name}.{table.name} foreign key references unknown service "
+                        f"'{fk.references_service}'"
+                    )
+
+    return problems
+
+
 # One optional checker per stage. Stages with no entry are schema-validated only.
 CROSS_STAGE_CHECKS: dict[StageType, Callable[[Any, dict[str, Any]], list[str]]] = {
     StageType.HLD: check_hld,
     StageType.LLD: check_lld,
+    StageType.DB_SCHEMA: check_db_schema,
 }
 
 

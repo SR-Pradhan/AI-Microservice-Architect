@@ -63,7 +63,57 @@ def hld_to_mermaid(hld: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-RENDERERS = {StageType.HLD: hld_to_mermaid}
+# Mermaid ER type names must be bare identifiers: NUMERIC(12,2) or "timestamp with tz" break it.
+_TYPE_SAFE = re.compile(r"[^A-Za-z0-9_]")
+
+
+def _er_type(raw: str) -> str:
+    cleaned = _TYPE_SAFE.sub("_", raw.strip()).strip("_")
+    return cleaned or "unknown"
+
+
+def db_schema_to_mermaid(schema: dict[str, Any]) -> str:
+    """One ER diagram covering every service, with relationships drawn from the foreign keys."""
+    lines = ["erDiagram"]
+    known_tables: set[str] = set()
+
+    for service in schema.get("services", []):
+        for table in service.get("tables", []):
+            known_tables.add(table.get("name", ""))
+
+    for service in schema.get("services", []):
+        service_name = service.get("name", "")
+        for table in service.get("tables", []):
+            name = _node_id(table.get("name", ""))
+            # A %% line is a Mermaid comment — it labels ownership without becoming an attribute.
+            lines.append(f"    %% {service_name}")
+            lines.append(f"    {name} {{")
+            for column in table.get("columns", []):
+                key = " PK" if column.get("primary_key") else ""
+                lines.append(
+                    f"        {_er_type(column.get('type', ''))} "
+                    f"{_node_id(column.get('name', ''))}{key}"
+                )
+            lines.append("    }")
+
+    for service in schema.get("services", []):
+        for table in service.get("tables", []):
+            for fk in table.get("foreign_keys", []):
+                target = fk.get("references_table", "")
+                if target not in known_tables:
+                    continue  # referencing something outside this design; nothing to draw
+                cross = fk.get("references_service") != service.get("name")
+                # Dotted line = logical reference across a service boundary, not a real constraint.
+                link = "}o..||" if cross else "}o--||"
+                lines.append(
+                    f'    {_node_id(table.get("name", ""))} {link} {_node_id(target)} : '
+                    f'"{_quote(fk.get("column", ""))}"'
+                )
+
+    return "\n".join(lines)
+
+
+RENDERERS = {StageType.HLD: hld_to_mermaid, StageType.DB_SCHEMA: db_schema_to_mermaid}
 
 
 def render_stage(stage_type: StageType, output: dict[str, Any]) -> str:

@@ -3,7 +3,7 @@
 import pytest
 
 from app.models.enums import StageType
-from app.services.diagram import hld_to_mermaid, render_stage
+from app.services.diagram import db_schema_to_mermaid, hld_to_mermaid, render_stage
 
 HLD = {
     "services": [
@@ -43,6 +43,71 @@ def test_no_broker_node_when_there_are_no_events() -> None:
 def test_quotes_in_names_do_not_break_labels() -> None:
     out = hld_to_mermaid({"services": [{"name": 'Od"d', "datastore": "", "scaling_notes": ""}]})
     assert '"' not in out.split("[", 1)[1].split("]")[0].strip('"')
+
+
+SCHEMA = {
+    "services": [
+        {
+            "name": "OrderService",
+            "engine": "PostgreSQL",
+            "tables": [
+                {
+                    "name": "orders",
+                    "entity": "Order",
+                    "columns": [
+                        {"name": "id", "type": "UUID", "primary_key": True},
+                        {"name": "total", "type": "NUMERIC(12,2)"},
+                        {"name": "user_id", "type": "UUID"},
+                    ],
+                    "indexes": [],
+                    "foreign_keys": [
+                        {"column": "user_id", "references_table": "users",
+                         "references_service": "UserService"},
+                    ],
+                }
+            ],
+            "notes": "-",
+        },
+        {
+            "name": "UserService",
+            "engine": "PostgreSQL",
+            "tables": [{"name": "users", "entity": "User",
+                        "columns": [{"name": "id", "type": "UUID", "primary_key": True}],
+                        "indexes": [], "foreign_keys": []}],
+            "notes": "-",
+        },
+    ]
+}
+
+
+def test_er_diagram_marks_keys_and_sanitises_types() -> None:
+    out = db_schema_to_mermaid(SCHEMA)
+    assert out.startswith("erDiagram")
+    assert "UUID id PK" in out
+    # NUMERIC(12,2) would break Mermaid's parser; it must be reduced to an identifier.
+    assert "NUMERIC_12_2 total" in out
+    assert "(" not in out
+    # Ownership is a Mermaid comment, never an attribute row.
+    assert "%% OrderService" in out
+
+
+def test_cross_service_reference_is_drawn_as_a_dotted_link() -> None:
+    """A FK across a service boundary is logical only, and must look different from a real one."""
+    out = db_schema_to_mermaid(SCHEMA)
+    assert 'orders }o..|| users : "user_id"' in out
+
+
+def test_reference_to_an_unknown_table_is_skipped() -> None:
+    schema = {"services": [{
+        "name": "OrderService", "engine": "PostgreSQL", "notes": "-",
+        "tables": [{"name": "orders", "entity": "Order",
+                    "columns": [{"name": "id", "type": "UUID", "primary_key": True}],
+                    "indexes": [],
+                    "foreign_keys": [{"column": "id", "references_table": "elsewhere",
+                                      "references_service": "Other"}]}],
+    }]}
+    out = db_schema_to_mermaid(schema)
+    assert "elsewhere" not in out
 
 
 def test_unsupported_stage_raises() -> None:

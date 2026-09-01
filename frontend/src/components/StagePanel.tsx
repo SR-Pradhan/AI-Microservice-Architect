@@ -7,7 +7,14 @@ const MermaidDiagram = lazy(() => import('./MermaidDiagram'))
 const LLDView = lazy(() => import('./LLDView'))
 
 /** Stages that render as something friendlier than raw JSON, and what that tab is called. */
-const VISUAL_TABS: Partial<Record<StageType, string>> = { hld: 'Diagram', lld: 'Contracts' }
+const VISUAL_TABS: Partial<Record<StageType, string>> = {
+  hld: 'Diagram',
+  lld: 'Contracts',
+  db_schema: 'ER Diagram',
+}
+
+/** Stages whose visual view is a Mermaid diagram fetched from the backend. */
+const DIAGRAM_STAGES: StageType[] = ['hld', 'db_schema']
 
 const LABELS: Record<StageType, string> = {
   boundaries: '1. Service Boundaries',
@@ -39,7 +46,7 @@ export default function StagePanel({ projectId, stage, unlocked, onChanged }: Pr
   const approved = stage.status === 'approved'
   const visualLabel = VISUAL_TABS[stage.stage_type]
   const hasVisual = visualLabel !== undefined
-  const needsDiagram = stage.stage_type === 'hld'
+  const needsDiagram = DIAGRAM_STAGES.includes(stage.stage_type)
 
   // Reset the editor whenever the server hands us new content, so the textarea never shows a
   // stale draft from a previous generation.
