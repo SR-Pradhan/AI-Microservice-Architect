@@ -46,6 +46,8 @@ class ProjectRead(BaseModel):
     raw_description: str
     created_at: datetime
     updated_at: datetime
+    # Stage statuses in pipeline order, so a list view can show progress without a second request.
+    stage_statuses: list[StageStatus] = []
 
 
 class ProjectDetail(ProjectRead):

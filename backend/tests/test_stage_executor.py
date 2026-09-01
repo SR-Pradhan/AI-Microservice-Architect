@@ -354,3 +354,25 @@ async def test_every_stage_is_implemented(db: AsyncSession, project: Project) ->
 
     assert set(STAGE_CONTRACTS) == set(STAGE_ORDER)
     assert set(STAGE_INSTRUCTIONS) == set(STAGE_ORDER)
+
+
+@pytest.mark.asyncio
+async def test_stage_statuses_are_returned_in_pipeline_order(
+    db: AsyncSession, project: Project
+) -> None:
+    """The list view shows per-project progress, so order must be the pipeline order — not
+    whatever order the database happens to return the rows in."""
+    llm = FakeLLM(list(SCRIPT))
+    await stage_executor.run_stage(db, project, StageType.BOUNDARIES, llm)
+    await stage_executor.approve_stage(db, project, StageType.BOUNDARIES)
+    await stage_executor.run_stage(db, project, StageType.HLD, llm)
+
+    await db.refresh(project)
+    assert project.stage_statuses == [
+        StageStatus.APPROVED,
+        StageStatus.GENERATED,
+        StageStatus.PENDING,
+        StageStatus.PENDING,
+        StageStatus.PENDING,
+        StageStatus.PENDING,
+    ]

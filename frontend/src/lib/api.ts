@@ -22,6 +22,8 @@ export interface Project {
   raw_description: string
   created_at: string
   updated_at: string
+  /** Stage statuses in pipeline order — lets the list show progress without a second request. */
+  stage_statuses: StageStatus[]
 }
 
 export interface ProjectDetail extends Project {

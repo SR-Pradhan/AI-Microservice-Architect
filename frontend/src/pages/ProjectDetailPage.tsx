@@ -57,8 +57,8 @@ export default function ProjectDetailPage() {
 
       <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">{project.name}</h1>
-          <p className="mt-2 max-w-3xl whitespace-pre-wrap text-sm leading-relaxed text-ink-muted">
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">{project.name}</h1>
+          <p className="mt-2.5 max-w-3xl whitespace-pre-wrap text-sm leading-relaxed text-ink-muted">
             {project.raw_description}
           </p>
         </div>

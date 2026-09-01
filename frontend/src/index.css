@@ -25,18 +25,18 @@
 /* Dark palette. Only the tokens are redefined — no component knows which theme is active.
    `applyChoice` always stamps a concrete data-theme, so one selector covers system and explicit. */
 :root[data-theme="dark"] {
-  --color-canvas: oklch(17% 0.012 265);
-  --color-surface: oklch(21% 0.014 265);
-  --color-line: oklch(28% 0.014 265);
-  --color-line-strong: oklch(35% 0.016 265);
+  --color-canvas: oklch(14.5% 0.012 265);
+  --color-surface: oklch(20.5% 0.015 265);
+  --color-line: oklch(31% 0.016 265);
+  --color-line-strong: oklch(40% 0.018 265);
 
   --color-ink: oklch(95% 0.005 265);
   --color-ink-muted: oklch(72% 0.012 265);
   --color-ink-faint: oklch(56% 0.014 265);
 
-  --color-accent: oklch(70% 0.15 264);
-  --color-accent-hover: oklch(77% 0.14 264);
-  --color-accent-soft: oklch(28% 0.05 264);
+  --color-accent: oklch(72% 0.15 264);
+  --color-accent-hover: oklch(80% 0.13 264);
+  --color-accent-soft: oklch(30% 0.06 264);
 }
 
 html {
@@ -63,4 +63,14 @@ code, pre, textarea.mono {
 
 @keyframes shimmer {
   100% { transform: translateX(100%); }
+}
+
+/* A faint grid behind the page. Almost invisible, but it stops large empty areas reading as a
+   blank void — especially in dark mode. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklch, var(--color-line) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--color-line) 55%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, #000 40%, transparent 100%);
 }
