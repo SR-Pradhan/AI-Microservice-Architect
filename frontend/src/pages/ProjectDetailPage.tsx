@@ -30,7 +30,16 @@ export default function ProjectDetailPage() {
       <Link to="/" className="text-sm text-slate-500 hover:underline">
         &larr; All projects
       </Link>
-      <h1 className="mt-3 text-2xl font-semibold text-slate-900">{project.name}</h1>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold text-slate-900">{project.name}</h1>
+        {/* A plain link, not fetch(): the browser handles the download and Content-Disposition. */}
+        <a
+          href={api.exportUrl(project.id)}
+          className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+        >
+          Download scaffold
+        </a>
+      </div>
       <p className="mt-2 max-w-3xl whitespace-pre-wrap text-sm text-slate-600">
         {project.raw_description}
       </p>

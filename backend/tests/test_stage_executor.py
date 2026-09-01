@@ -306,14 +306,29 @@ VALID_KAFKA = {
     "schema_evolution_notes": "-",
 }
 
-IMPLEMENTED = (
-    StageType.BOUNDARIES,
-    StageType.HLD,
-    StageType.LLD,
-    StageType.DB_SCHEMA,
-    StageType.KAFKA_EVENTS,
-)
-SCRIPT = [VALID_OUTPUT, VALID_HLD, VALID_LLD, VALID_DB_SCHEMA, VALID_KAFKA]
+def _infra_service(name: str, port: int) -> dict:
+    return {
+        "name": name, "base_image": "python:3.12-slim", "build_steps": ["COPY . ."],
+        "start_command": "python main.py", "port": port, "health_check_path": "/health",
+        "env_vars": [], "replicas": 1, "cpu_request": "100m", "cpu_limit": "500m",
+        "memory_request": "256Mi", "memory_limit": "512Mi",
+        "depends_on": ["postgres", "kafka"],
+    }
+
+
+VALID_INFRA = {
+    "services": [_infra_service("OrderService", 8081), _infra_service("PaymentService", 8082)],
+    "infra_components": [
+        {"name": "postgres", "image": "postgres:16-alpine", "port": 5432,
+         "used_by": ["OrderService", "PaymentService"]},
+        {"name": "kafka", "image": "bitnami/kafka:3.7", "port": 9092,
+         "used_by": ["OrderService", "PaymentService"]},
+    ],
+    "notes": "-",
+}
+
+IMPLEMENTED = STAGE_ORDER
+SCRIPT = [VALID_OUTPUT, VALID_HLD, VALID_LLD, VALID_DB_SCHEMA, VALID_KAFKA, VALID_INFRA]
 
 
 @pytest.mark.asyncio
@@ -325,17 +340,17 @@ async def test_all_implemented_stages_run_in_order(db: AsyncSession, project: Pr
         await stage_executor.approve_stage(db, project, stage_type)
 
     # The last stage must receive every earlier stage, not just the one before it.
-    events = await stage_executor.get_stage(db, project.id, StageType.KAFKA_EVENTS)
-    assert set(events.input_snapshot["prior_outputs"]) == {
-        "boundaries", "hld", "lld", "db_schema"
+    infra = await stage_executor.get_stage(db, project.id, StageType.INFRA)
+    assert set(infra.input_snapshot["prior_outputs"]) == {
+        "boundaries", "hld", "lld", "db_schema", "kafka_events"
     }
 
 
 @pytest.mark.asyncio
-async def test_unimplemented_stage_reports_clearly(db: AsyncSession, project: Project) -> None:
-    llm = FakeLLM(list(SCRIPT))
-    for stage_type in IMPLEMENTED:
-        await stage_executor.run_stage(db, project, stage_type, llm)
-        await stage_executor.approve_stage(db, project, stage_type)
-    with pytest.raises(NotImplementedError, match="not implemented yet"):
-        await stage_executor.run_stage(db, project, StageType.INFRA, llm)
+async def test_every_stage_is_implemented(db: AsyncSession, project: Project) -> None:
+    """All six stages now have a contract and a prompt — nothing returns 501 any more."""
+    from app.ai.contracts import STAGE_CONTRACTS
+    from app.ai.prompts import STAGE_INSTRUCTIONS
+
+    assert set(STAGE_CONTRACTS) == set(STAGE_ORDER)
+    assert set(STAGE_INSTRUCTIONS) == set(STAGE_ORDER)

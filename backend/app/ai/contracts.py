@@ -222,13 +222,61 @@ class KafkaEventsOutput(StageContract):
     )
 
 
-# Stage 6 lands in a later version.
+class EnvVar(StageContract):
+    name: str = Field(description="UPPER_SNAKE_CASE, e.g. DATABASE_URL")
+    value: str = Field(description="The value, or a placeholder like 'changeme' for a secret")
+    secret: bool = Field(default=False, description="True if this must come from a k8s Secret")
+    description: str
+
+
+class InfraComponent(StageContract):
+    """A backing service the generated system needs: a database, the broker, a cache."""
+
+    name: str = Field(description="Compose service name, e.g. orders-postgres")
+    image: str = Field(description="Docker image with a pinned tag, e.g. postgres:16-alpine")
+    port: int = Field(ge=1, le=65535)
+    used_by: list[str] = Field(min_length=1, description="Services that connect to this component")
+
+
+class ServiceInfra(StageContract):
+    name: str = Field(description="Must exactly match a service name from Stage 3")
+    base_image: str = Field(
+        description="Docker base image matching that service's tech_stack, with a pinned tag"
+    )
+    build_steps: list[str] = Field(
+        min_length=1,
+        description="Dockerfile RUN/COPY steps after the base image, in order, without the "
+        "FROM/EXPOSE/CMD lines — those are generated",
+    )
+    start_command: str = Field(description="The container's start command, e.g. 'java -jar app.jar'")
+    port: int = Field(ge=1, le=65535, description="Container port. Must be unique across services.")
+    health_check_path: str = Field(description="HTTP path for liveness/readiness, e.g. /health")
+    env_vars: list[EnvVar] = Field(default_factory=list)
+    replicas: int = Field(ge=1, le=20)
+    cpu_request: str = Field(description="k8s CPU request, e.g. '100m'")
+    cpu_limit: str = Field(description="k8s CPU limit, e.g. '500m'")
+    memory_request: str = Field(description="k8s memory request, e.g. '256Mi'")
+    memory_limit: str = Field(description="k8s memory limit, e.g. '512Mi'")
+    depends_on: list[str] = Field(
+        default_factory=list, description="Names of infra_components this service needs"
+    )
+
+
+class InfraOutput(StageContract):
+    """Stage 6 output: everything needed to generate Dockerfiles, compose and k8s manifests."""
+
+    services: list[ServiceInfra] = Field(min_length=2)
+    infra_components: list[InfraComponent] = Field(min_length=1)
+    notes: str = Field(description="Deployment order, migrations, scaling and secret handling")
+
+
 STAGE_CONTRACTS: dict[StageType, type[StageContract]] = {
     StageType.BOUNDARIES: BoundariesOutput,
     StageType.HLD: HLDOutput,
     StageType.LLD: LLDOutput,
     StageType.DB_SCHEMA: DBSchemaOutput,
     StageType.KAFKA_EVENTS: KafkaEventsOutput,
+    StageType.INFRA: InfraOutput,
 }
 
 

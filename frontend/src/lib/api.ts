@@ -49,6 +49,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  exportUrl: (projectId: string) => `${BASE}/projects/${projectId}/export`,
   runStage: (projectId: string, stage: StageType) =>
     request<Stage>(`/projects/${projectId}/stages/${stage}/run`, { method: 'POST' }),
   saveStageEdit: (projectId: string, stage: StageType, output_json: unknown) =>

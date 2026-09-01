@@ -105,12 +105,38 @@ Rules you must follow:
   poison message ends up.
 """
 
+INFRA_INSTRUCTIONS = """\
+Define the deployment configuration for every service in the approved design.
+
+You are NOT writing YAML. You describe the facts; the Dockerfiles, docker-compose.yml and
+Kubernetes manifests are generated from what you return, so be precise rather than verbose.
+
+Rules you must follow:
+- Cover EVERY service, spelled exactly as in the low-level design.
+- base_image must match that service's tech_stack and be pinned to a specific tag. Never use
+  'latest'. Prefer slim or alpine runtime images over full SDK images.
+- build_steps are the Dockerfile lines between the base image and the start command, in order.
+  Do not include FROM, EXPOSE, WORKDIR or CMD — those are generated for you. Copy the dependency
+  manifest and install dependencies BEFORE copying the source, so Docker's layer cache works.
+- port must be unique across all services — two services cannot bind the same port in compose.
+- Declare one infra_component per backing store the design actually uses. Each service that owns a
+  database gets its own component, because services must not share a datastore. Add exactly one
+  Kafka component if the design has any events.
+- depends_on must name infra_components you declared. A service that publishes or consumes events
+  depends on Kafka. A service with its own datastore depends on that datastore.
+- env_vars must include the connection details a service needs (its database URL, the Kafka
+  brokers). Mark anything credential-like as secret.
+- Set resource requests and limits deliberately per workload — a cache-backed read service is not
+  the same shape as a payments service.
+"""
+
 STAGE_INSTRUCTIONS = {
     StageType.BOUNDARIES: BOUNDARIES_INSTRUCTIONS,
     StageType.HLD: HLD_INSTRUCTIONS,
     StageType.LLD: LLD_INSTRUCTIONS,
     StageType.DB_SCHEMA: DB_SCHEMA_INSTRUCTIONS,
     StageType.KAFKA_EVENTS: KAFKA_EVENTS_INSTRUCTIONS,
+    StageType.INFRA: INFRA_INSTRUCTIONS,
 }
 
 

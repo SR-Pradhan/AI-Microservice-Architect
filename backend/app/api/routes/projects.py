@@ -2,12 +2,13 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models import STAGE_ORDER, Project, Stage, StageStatus
+from app.services import export
 from app.schemas.project import ProjectCreate, ProjectDetail, ProjectRead, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -55,6 +56,34 @@ async def update_project(
     await db.commit()
     await db.refresh(project)
     return project
+
+
+@router.get("/{project_id}/export")
+async def export_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Response:
+    """Downloads the whole scaffold as a zip: Dockerfiles, compose, k8s manifests, docs, diagrams.
+
+    Exports what each stage *effectively* holds — the user's edit if there is one — and refuses if
+    nothing has been generated at all.
+    """
+    project = await _get_project_or_404(db, project_id)
+    stages = {
+        stage.stage_type.value: stage.effective_json
+        for stage in project.stages
+        if stage.effective_json is not None
+    }
+    if not stages:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nothing to export — no stage has been generated yet",
+        )
+
+    archive = export.build_export(project.name, project.raw_description, stages)
+    filename = f"{export.kebab(project.name)}-scaffold.zip"
+    return Response(
+        content=archive,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -8,11 +8,13 @@ These checks run right after schema validation. A failure is raised as Consisten
 Stage Executor treats exactly like a schema failure: feed the problem back and ask for a fix.
 """
 
+import re
 from typing import Any, Callable
 
 from app.ai.contracts import (
     DBSchemaOutput,
     HLDOutput,
+    InfraOutput,
     KafkaEventsOutput,
     LLDOutput,
     StageContract,
@@ -289,12 +291,100 @@ def check_kafka_events(events: KafkaEventsOutput, prior_outputs: dict[str, Any])
     return problems
 
 
+def _engine_stem_haystack(image: str) -> str:
+    """The image name with punctuation stripped, so a stem can be searched inside it."""
+    return re.sub(r"[^a-z0-9]", "", image.lower())
+
+
+def _engine_stem(text: str) -> str:
+    """A short normalised stem for matching an engine name against a Docker image.
+
+    Exact matching fails on the obvious pairs — engine "PostgreSQL" vs image "postgres:16-alpine",
+    "MongoDB" vs "mongo:7". Stripping punctuation and taking the first five characters matches every
+    common engine (postg, mongo, redis, mysql, elast) without a hand-maintained alias table.
+    """
+    return re.sub(r"[^a-z0-9]", "", text.lower())[:5]
+
+
+def check_infra(infra: InfraOutput, prior_outputs: dict[str, Any]) -> list[str]:
+    """The deployment config must actually be deployable, and match the design above it."""
+    lld = prior_outputs.get(StageType.LLD.value) or {}
+    db = prior_outputs.get(StageType.DB_SCHEMA.value) or {}
+    lld_services = {s["name"]: s for s in lld.get("services", [])}
+    if not lld_services:
+        return []
+
+    problems: list[str] = []
+    infra_services = {s.name: s for s in infra.services}
+
+    for name in sorted(set(infra_services) - set(lld_services)):
+        problems.append(f"Infra describes '{name}', which has no low-level design")
+    for name in sorted(set(lld_services) - set(infra_services)):
+        problems.append(f"Service '{name}' has no deployment configuration")
+
+    # Two services on the same port cannot both bind it in docker-compose.
+    by_port: dict[int, str] = {}
+    for name, service in sorted(infra_services.items()):
+        clash = by_port.get(service.port)
+        if clash:
+            problems.append(f"{name} and {clash} both use port {service.port}")
+        by_port[service.port] = name
+
+        if ":" not in service.base_image or service.base_image.endswith(":latest"):
+            problems.append(
+                f"{name} base image '{service.base_image}' is not pinned to a specific tag"
+            )
+
+    components = {c.name: c for c in infra.infra_components}
+    kafka_components = {n for n, c in components.items() if "kafka" in c.image.lower()}
+    engines = {s["name"]: s["engine"] for s in db.get("services", [])}
+
+    for name, service in infra_services.items():
+        for dependency in service.depends_on:
+            if dependency not in components:
+                problems.append(
+                    f"{name} depends on '{dependency}', which is not a declared infra component"
+                )
+
+        lld_service = lld_services.get(name, {})
+        uses_events = bool(lld_service.get("published_events") or lld_service.get("consumed_events"))
+        if uses_events and not (set(service.depends_on) & kafka_components):
+            problems.append(
+                f"{name} publishes or consumes events but does not depend on a Kafka component"
+            )
+
+        engine = engines.get(name)
+        if engine:
+            # The service must depend on a component actually running its datastore engine.
+            stem = _engine_stem(engine)
+            matched = any(
+                stem in _engine_stem_haystack(components[d].image)
+                for d in service.depends_on
+                if d in components
+            )
+            if not matched:
+                problems.append(
+                    f"{name} stores data in {engine} but depends on no component running it "
+                    f"(depends_on: {service.depends_on or 'nothing'})"
+                )
+
+    for component in infra.infra_components:
+        for user in component.used_by:
+            if user not in infra_services:
+                problems.append(
+                    f"Infra component '{component.name}' is used_by unknown service '{user}'"
+                )
+
+    return problems
+
+
 # One optional checker per stage. Stages with no entry are schema-validated only.
 CROSS_STAGE_CHECKS: dict[StageType, Callable[[Any, dict[str, Any]], list[str]]] = {
     StageType.HLD: check_hld,
     StageType.LLD: check_lld,
     StageType.DB_SCHEMA: check_db_schema,
     StageType.KAFKA_EVENTS: check_kafka_events,
+    StageType.INFRA: check_infra,
 }
 
 
